@@ -7,11 +7,8 @@ use common::{
 use fusio::SeqRead;
 use fusio_log::{Decode, Encode};
 
-use super::{schema::DynSchema, DynRecordRef, Value};
-use crate::{
-    cast_arc_value,
-    record::{Record, RecordDecodeError},
-};
+use super::{DynRecordImmutableArrays, DynRecordRef, Value};
+use crate::{cast_arc_value, record::Record};
 
 #[derive(Debug)]
 pub struct DynRecord {
@@ -71,9 +68,11 @@ macro_rules! implement_record {
         }
 
         impl Record for DynRecord {
-            type Schema = DynSchema;
+            type Key = Value;
 
             type Ref<'r> = DynRecordRef<'r>;
+
+            type Columns = DynRecordImmutableArrays;
 
             fn as_record_ref(&self) -> Self::Ref<'_> {
                 let mut columns = vec![];
@@ -213,35 +212,35 @@ pub(crate) mod test {
         sync::Arc,
     };
 
+    use arrow::datatypes::{DataType as ArrowDataType, Field, TimeUnit as ArrowTimeUnit};
     use common::{datatype::DataType, TimeUnit, Timestamp, F32, F64};
     use fusio_log::{Decode, Encode};
     use tokio::io::AsyncSeekExt;
 
-    use super::{DynRecord, DynSchema, Record};
-    use crate::{
-        make_dyn_schema,
-        record::{DynRecordRef, Value},
-    };
+    use super::{DynRecord, Record};
+    use crate::record::{DynRecordRef, Schema, Value};
 
     #[allow(unused)]
-    pub(crate) fn test_dyn_item_schema() -> DynSchema {
-        make_dyn_schema!(
-            ("id", DataType::Int64, false),
-            ("age", DataType::Int8, true),
-            ("height", DataType::Int16, true),
-            ("weight", DataType::Int32, false),
-            ("name", DataType::String, false),
-            ("email", DataType::String, true),
-            ("enabled", DataType::Boolean, false),
-            ("bytes", DataType::Bytes, true),
-            ("grade", DataType::Float32, false),
-            ("price", DataType::Float64, true),
-            (
-                "timestamp",
-                DataType::Timestamp(TimeUnit::Millisecond),
-                true
-            ),
-            0
+    pub(crate) fn test_dyn_item_schema() -> Schema {
+        Schema::new(
+            vec![
+                Field::new("id", ArrowDataType::Int64, false),
+                Field::new("age", ArrowDataType::Int8, true),
+                Field::new("height", ArrowDataType::Int16, true),
+                Field::new("weight", ArrowDataType::Int32, false),
+                Field::new("name", ArrowDataType::Utf8, false),
+                Field::new("email", ArrowDataType::Utf8, true),
+                Field::new("enabled", ArrowDataType::Boolean, false),
+                Field::new("bytes", ArrowDataType::Binary, true),
+                Field::new("grade", ArrowDataType::Float32, false),
+                Field::new("price", ArrowDataType::Float64, true),
+                Field::new(
+                    "timestamp",
+                    ArrowDataType::Timestamp(ArrowTimeUnit::Millisecond, None),
+                    true,
+                ),
+            ],
+            0,
         )
     }
 

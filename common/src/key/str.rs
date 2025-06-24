@@ -2,9 +2,8 @@ use std::{any::Any, sync::Arc};
 
 use arrow::array::{Datum, StringArray};
 
-use crate::datatype::DataType;
-
 use super::{Key, KeyRef, Value};
+use crate::datatype::DataType;
 
 pub type LargeString = String;
 

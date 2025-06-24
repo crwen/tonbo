@@ -1,19 +1,29 @@
 use std::{fs, sync::Arc};
 
-use common::datatype::DataType;
+use arrow::datatypes::{DataType as ArrowDataType, Field};
 use fusio::path::Path;
-use tonbo::{dyn_record, dyn_schema, executor::tokio::TokioExecutor, record::Value, DbOption, DB};
+use tonbo::{
+    datatype::DataType,
+    dyn_record,
+    executor::tokio::TokioExecutor,
+    record::{Schema, Value},
+    DbOption, DB,
+};
 
 #[tokio::main]
 async fn main() {
     fs::create_dir_all("./db_path/users").unwrap();
 
-    let schema = dyn_schema!(("foo", String, false), ("bar", Int32, true), 0);
-
-    let options = DbOption::new(
-        Path::from_filesystem_path("./db_path/users").unwrap(),
-        &schema,
+    let schema = Schema::new(
+        vec![
+            Field::new("foo", ArrowDataType::Utf8, false),
+            Field::new("bar", ArrowDataType::Int32, true),
+        ],
+        0,
     );
+
+    let options = DbOption::new(Path::from_filesystem_path("./db_path/users").unwrap());
+
     let db = DB::new(options, TokioExecutor::current(), schema)
         .await
         .unwrap();

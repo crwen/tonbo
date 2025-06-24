@@ -227,8 +227,8 @@ impl PartialEq for dyn Value {
                     .downcast_ref::<Option<u64>>()
                     .unwrap()
                     .eq(other.as_any().downcast_ref::<Option<u64>>().unwrap()),
-                DataType::Int8 => self.as_i8_opt().eq(other.as_i8_opt()),
-                DataType::Int16 => self.as_i16_opt().eq(other.as_i16_opt()),
+                DataType::Int8 => todo!(),
+                DataType::Int16 => todo!(),
                 DataType::Int32 => todo!(),
                 DataType::Int64 => todo!(),
                 DataType::String => todo!(),

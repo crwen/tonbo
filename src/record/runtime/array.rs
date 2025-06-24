@@ -217,7 +217,7 @@ macro_rules! implement_builder_array {
         impl Builder<DynRecordImmutableArrays> for DynRecordBuilder {
             fn push(
                 &mut self,
-                key: Ts<<<<DynRecord as Record>::Schema as Schema>::Key as Key>::Ref<'_>>,
+                key: Ts<<<DynRecord as Record>::Key as Key>::Ref<'_>>,
                 row: Option<DynRecordRef>,
             ) {
                 self._null.append(row.is_none());
@@ -454,7 +454,7 @@ macro_rules! implement_builder_array {
         impl DynRecordBuilder {
             fn push_primary_key(
                 &mut self,
-                key: Ts<<<<DynRecord as Record>::Schema as Schema>::Key as Key>::Ref<'_>>,
+                key: Ts<<<DynRecord as Record>::Key as Key>::Ref<'_>>,
                 primary_key_index: usize,
             ) {
                 let builder = self.builders.get_mut(primary_key_index).unwrap();
@@ -534,10 +534,7 @@ implement_builder_array!(
         { i16, DataType::Int16, Int16Type },
         { i32, DataType::Int32, Int32Type },
         { i64, DataType::Int64, Int64Type },
-        // { f32, DataType::Float32, PrimitiveBuilder<Float32Type> },
-        // { f64, DataType::Float64, PrimitiveBuilder<Float64Type> },
     },
-    // f32, f64, and bool are special cases, they are handled separately
     {
 
         { String, DataType::String, StringBuilder, StringArray },
@@ -564,11 +561,14 @@ implement_builder_array!(
 #[cfg(test)]
 mod tests {
 
+    use std::sync::Arc;
+
+    use arrow::datatypes::{DataType, Field};
     use common::{F32, F64};
     use parquet::arrow::ProjectionMask;
 
     use crate::{
-        dyn_record, dyn_schema,
+        dyn_record,
         inmem::immutable::{ArrowArrays, Builder},
         record::{DynRecordImmutableArrays, DynRecordRef, Record, RecordRef, Schema},
     };
@@ -576,9 +576,13 @@ mod tests {
     #[tokio::test]
     async fn test_build_primary_key() {
         {
-            let schema = dyn_schema!(("id", UInt64, false), 0);
             let record = dyn_record!(("id", UInt64, false, 1_u64), 0);
-            let mut builder = DynRecordImmutableArrays::builder(schema.arrow_schema().clone(), 5);
+            let schema = Arc::new(Schema::new(
+                vec![Field::new("id", DataType::UInt64, false)],
+                0,
+            ));
+            let arrow_schema = schema.arrow_schema().clone();
+            let mut builder = DynRecordImmutableArrays::builder(arrow_schema, 5);
             let key = crate::timestamp::Ts {
                 ts: 0.into(),
                 value: record.key(),
@@ -595,9 +599,13 @@ mod tests {
             }
         }
         {
-            let schema = dyn_schema!(("id", String, false), 0);
+            let schema = Arc::new(Schema::new(
+                vec![Field::new("id", DataType::Utf8, false)],
+                0,
+            ));
+            let arrow_schema = schema.arrow_schema().clone();
             let record = dyn_record!(("id", String, false, "abc".to_string()), 0);
-            let mut builder = DynRecordImmutableArrays::builder(schema.arrow_schema().clone(), 5);
+            let mut builder = DynRecordImmutableArrays::builder(arrow_schema, 5);
             let key = crate::timestamp::Ts {
                 ts: 0.into(),
                 value: record.key(),
@@ -614,9 +622,13 @@ mod tests {
             }
         }
         {
-            let schema = dyn_schema!(("id", Float32, false), 0);
+            let schema = Arc::new(Schema::new(
+                vec![Field::new("id", DataType::Float32, false)],
+                0,
+            ));
+            let arrow_schema = schema.arrow_schema().clone();
             let record = dyn_record!(("id", Float32, false, F32::from(3.2324)), 0);
-            let mut builder = DynRecordImmutableArrays::builder(schema.arrow_schema().clone(), 5);
+            let mut builder = DynRecordImmutableArrays::builder(arrow_schema, 5);
             let key = crate::timestamp::Ts {
                 ts: 0.into(),
                 value: record.key(),
@@ -636,17 +648,18 @@ mod tests {
 
     #[tokio::test]
     async fn test_build_array() {
-        let schema = dyn_schema!(
-            ("id", UInt32, false),
-            ("bool", Boolean, true),
-            ("bytes", Bytes, true),
-            ("none", Int64, true),
-            ("str", String, false),
-            ("float32", Float32, false),
-            ("float64", Float64, true),
-            0
-        );
-
+        let schema = Arc::new(Schema::new(
+            vec![
+                Field::new("id", DataType::UInt32, false),
+                Field::new("bool", DataType::Boolean, true),
+                Field::new("bytes", DataType::Binary, true),
+                Field::new("none", DataType::Int64, true),
+                Field::new("str", DataType::Utf8, false),
+                Field::new("float32", DataType::Float32, false),
+                Field::new("float64", DataType::Float64, true),
+            ],
+            0,
+        ));
         let record = dyn_record!(
             ("id", UInt32, false, 1_u32),
             ("bool", Boolean, true, Some(true)),
