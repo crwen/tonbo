@@ -11,17 +11,18 @@ use parquet::{
 use thiserror::Error;
 
 use crate::{
+    compaction::Compaction,
     fs::{FileId, FileType},
-    record::Schema,
+    record::{Record, Schema},
     trigger::TriggerType,
     version::MAX_LEVEL,
 };
 
 const DEFAULT_WAL_BUFFER_SIZE: usize = 4 * 1024;
 
-#[derive(Clone)]
-pub enum CompactionOption {
+pub enum CompactionOption<R: Record> {
     Leveled,
+    Customized(Box<dyn Compaction<R>>),
 }
 
 /// configure the operating parameters of each component in the [`DB`](crate::DB)
@@ -43,7 +44,7 @@ pub struct DbOption {
     pub(crate) use_wal: bool,
     pub(crate) wal_buffer_size: usize,
     pub(crate) write_parquet_properties: WriterProperties,
-    pub(crate) compaction_option: CompactionOption,
+    // pub(crate) compaction_option: CompactionOption,
 }
 
 impl DbOption {
@@ -75,7 +76,7 @@ impl DbOption {
             version_log_snapshot_threshold: 200,
             level_paths: vec![None; MAX_LEVEL],
             base_fs: FsOptions::Local,
-            compaction_option: CompactionOption::Leveled,
+            // compaction_option: CompactionOption::Leveled,
         }
     }
 }
@@ -197,12 +198,12 @@ impl DbOption {
         self
     }
 
-    pub fn compaction_option(self, compaction_option: CompactionOption) -> Self {
-        Self {
-            compaction_option,
-            ..self
-        }
-    }
+    // pub fn compaction_option(self, compaction_option: CompactionOption) -> Self {
+    //     Self {
+    //         compaction_option,
+    //         ..self
+    //     }
+    // }
 }
 
 #[derive(Debug, Error)]

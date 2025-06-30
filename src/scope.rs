@@ -6,9 +6,9 @@ use fusio_log::{Decode, Encode};
 use crate::fs::FileId;
 
 #[derive(Debug, Eq, PartialEq)]
-pub(crate) struct Scope<K> {
-    pub(crate) min: K,
-    pub(crate) max: K,
+pub struct Scope<K> {
+    pub min: K,
+    pub max: K,
     pub(crate) gen: FileId,
     pub(crate) wal_ids: Option<Vec<FileId>>,
 }

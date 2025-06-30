@@ -1,6 +1,8 @@
 pub(crate) mod leveled;
 use std::{pin::Pin, sync::Arc};
-
+mod customized;
+use arrow::datatypes::Schema;
+pub use customized::*;
 use fusio::DynFs;
 use fusio_parquet::writer::AsyncWriter;
 use futures_util::StreamExt;
@@ -10,7 +12,8 @@ use thiserror::Error;
 use tokio::sync::oneshot;
 
 use crate::{
-    fs::{generate_file_id, FileType},
+    context::Context,
+    fs::{generate_file_id, FileId, FileType},
     inmem::immutable::{ArrowArrays, Builder},
     record::{KeyRef, Record, Schema as RecordSchema},
     scope::Scope,
@@ -25,6 +28,7 @@ where
     R: Record,
 {
     Leveled(LeveledCompactor<R>),
+    Customized(CustomizedCompactor<R>),
 }
 
 #[derive(Debug)]
@@ -43,22 +47,24 @@ where
     ) -> Result<(), CompactionError<R>> {
         match self {
             Compactor::Leveled(leveled) => leveled.check_then_compaction(is_manual).await,
+            Compactor::Customized(customized_compactor) => {
+                customized_compactor.check_then_compaction(is_manual).await
+            }
         }
     }
 
     async fn build_tables<'scan>(
         option: &DbOption,
-        version_edits: &mut Vec<VersionEdit<<R::Schema as RecordSchema>::Key>>,
         level: usize,
         streams: Vec<ScanStream<'scan, R>>,
-        schema: &R::Schema,
+        arrow_schema: &Arc<Schema>,
         fs: &Arc<dyn DynFs>,
-    ) -> Result<(), CompactionError<R>> {
+    ) -> Result<Vec<Scope<<R::Schema as RecordSchema>::Key>>, CompactionError<R>> {
         let mut stream = MergeStream::<R>::from_vec(streams, u32::MAX.into()).await?;
+        let mut scopes = vec![];
 
         // Kould: is the capacity parameter necessary?
-        let mut builder =
-            <R::Schema as RecordSchema>::Columns::builder(schema.arrow_schema().clone(), 8192);
+        let mut builder = <R::Schema as RecordSchema>::Columns::builder(arrow_schema.clone(), 8192);
         let mut min = None;
         let mut max = None;
 
@@ -73,33 +79,34 @@ where
             builder.push(key, entry.value());
 
             if builder.written_size() >= option.max_sst_file_size {
-                Self::build_table(
+                let scope = Self::build_table(
                     option,
-                    version_edits,
                     level,
                     &mut builder,
                     &mut min,
                     &mut max,
-                    schema,
+                    arrow_schema,
                     fs,
                 )
                 .await?;
+
+                scopes.push(scope);
             }
         }
         if builder.written_size() > 0 {
-            Self::build_table(
+            let scope = Self::build_table(
                 option,
-                version_edits,
                 level,
                 &mut builder,
                 &mut min,
                 &mut max,
-                schema,
+                arrow_schema,
                 fs,
             )
             .await?;
+            scopes.push(scope);
         }
-        Ok(())
+        Ok(scopes)
     }
 
     fn full_scope<'a>(
@@ -119,14 +126,13 @@ where
     #[allow(clippy::too_many_arguments)]
     async fn build_table(
         option: &DbOption,
-        version_edits: &mut Vec<VersionEdit<<R::Schema as RecordSchema>::Key>>,
         level: usize,
         builder: &mut <<R::Schema as RecordSchema>::Columns as ArrowArrays>::Builder,
         min: &mut Option<<R::Schema as RecordSchema>::Key>,
         max: &mut Option<<R::Schema as RecordSchema>::Key>,
-        schema: &R::Schema,
+        arrow_schema: &Arc<Schema>,
         fs: &Arc<dyn DynFs>,
-    ) -> Result<(), CompactionError<R>> {
+    ) -> Result<Scope<<R::Schema as RecordSchema>::Key>, CompactionError<R>> {
         debug_assert!(min.is_some());
         debug_assert!(max.is_some());
 
@@ -140,21 +146,62 @@ where
                 )
                 .await?,
             ),
-            schema.arrow_schema().clone(),
+            arrow_schema.clone(),
             Some(option.write_parquet_properties.clone()),
         )?;
         writer.write(columns.as_record_batch()).await?;
         writer.close().await?;
-        version_edits.push(VersionEdit::Add {
-            level: level as u8,
-            scope: Scope {
-                min: min.take().ok_or(CompactionError::EmptyLevel)?,
-                max: max.take().ok_or(CompactionError::EmptyLevel)?,
-                gen,
-                wal_ids: None,
-            },
-        });
-        Ok(())
+        Ok(Scope {
+            min: min.take().ok_or(CompactionError::EmptyLevel)?,
+            max: max.take().ok_or(CompactionError::EmptyLevel)?,
+            gen,
+            wal_ids: None,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct CompactionOutput<R: Record> {
+    /// compaction input scopes in level.
+    pub inputs: Vec<FileMeta<R>>,
+    /// compaction output level.
+    pub output_level: usize,
+}
+
+#[derive(Debug)]
+pub struct MergeOutput<R: Record> {
+    adds: Vec<(FileMeta<R>)>,
+    deletes: Vec<FileMeta<R>>,
+    // edits: Vec<VersionEdit<<R::Schema as RecordSchema>::Key>>,
+}
+
+#[derive(Debug)]
+pub struct FileMeta<R>
+where
+    R: Record,
+{
+    pub scope: Scope<<R::Schema as RecordSchema>::Key>,
+    pub level: usize,
+}
+
+impl<R> Clone for FileMeta<R>
+where
+    R: Record,
+{
+    fn clone(&self) -> Self {
+        Self {
+            scope: self.scope.clone(),
+            level: self.level,
+        }
+    }
+}
+
+impl<R> FileMeta<R>
+where
+    R: Record,
+{
+    pub fn new(level: usize, scope: Scope<<R::Schema as RecordSchema>::Key>) -> Self {
+        Self { scope, level }
     }
 }
 

@@ -1,5 +1,6 @@
 use std::{cmp, collections::Bound, mem, sync::Arc};
 
+use arrow::datatypes::Schema;
 use async_lock::{RwLock, RwLockUpgradableReadGuard};
 use fusio_parquet::writer::AsyncWriter;
 use parquet::arrow::{AsyncArrowWriter, ProjectionMask};
@@ -91,7 +92,7 @@ where
                 &self.option,
                 recover_wal_ids,
                 excess,
-                &guard.record_schema,
+                guard.record_schema.arrow_schema(),
                 &self.ctx.manager,
             )
             .await?
@@ -133,14 +134,14 @@ where
         Ok(())
     }
 
-    async fn minor_compaction(
+    pub(crate) async fn minor_compaction(
         option: &DbOption,
         recover_wal_ids: Option<Vec<FileId>>,
         batches: &[(
             Option<FileId>,
             Immutable<<R::Schema as RecordSchema>::Columns>,
         )],
-        schema: &R::Schema,
+        arrow_schema: &Arc<Schema>,
         manager: &StoreManager,
     ) -> Result<Option<Scope<<R::Schema as RecordSchema>::Key>>, CompactionError<R>> {
         if !batches.is_empty() {
@@ -162,7 +163,7 @@ where
                         )
                         .await?,
                 ),
-                schema.arrow_schema().clone(),
+                arrow_schema.clone(),
                 Some(option.write_parquet_properties.clone()),
             )?;
 
@@ -195,7 +196,7 @@ where
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn major_compaction(
+    pub(crate) async fn major_compaction(
         version: &Version<R>,
         option: &DbOption,
         mut min: &<R::Schema as RecordSchema>::Key,
@@ -285,15 +286,21 @@ where
                 });
             }
 
-            Compactor::<R>::build_tables(
+            let scopes = Compactor::<R>::build_tables(
                 option,
-                version_edits,
                 level + 1,
                 streams,
-                instance,
+                instance.arrow_schema(),
                 level_l_fs,
             )
             .await?;
+
+            for scope in scopes.into_iter() {
+                version_edits.push(VersionEdit::Add {
+                    level: level as u8 + 1,
+                    scope,
+                });
+            }
 
             for scope in meet_scopes_l {
                 version_edits.push(VersionEdit::Remove {
@@ -576,7 +583,7 @@ pub(crate) mod tests {
                 (Some(generate_file_id()), batch_1),
                 (Some(generate_file_id()), batch_2),
             ],
-            &TestSchema,
+            TestSchema.arrow_schema(),
             &manager,
         )
         .await
@@ -639,7 +646,7 @@ pub(crate) mod tests {
                 (Some(generate_file_id()), batch_1),
                 (Some(generate_file_id()), batch_2),
             ],
-            &instance,
+            instance.arrow_schema(),
             &manager,
         )
         .await
