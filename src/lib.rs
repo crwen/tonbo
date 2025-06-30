@@ -129,8 +129,9 @@ use std::{collections::HashMap, io, marker::PhantomData, mem, ops::Bound, pin::p
 pub use arrow;
 use async_lock::RwLock;
 use async_stream::stream;
-use compaction::leveled::LeveledCompactor;
-use context::Context;
+use compaction::{leveled::LeveledCompactor, CustomizedCompactor};
+pub use compaction::{Compaction, CompactionError, CompactionOutput, FileMeta, MergeOutput};
+pub use context::Context;
 use flume::{bounded, Sender};
 use fs::FileId;
 pub use fusio::{SeqRead, Write};
@@ -159,7 +160,7 @@ use wal::log::Log;
 
 pub use crate::option::*;
 use crate::{
-    compaction::{CompactTask, CompactionError, Compactor},
+    compaction::{CompactTask, Compactor},
     executor::Executor,
     fs::{manager::StoreManager, parse_file_id, FileType},
     record::Schema,
@@ -201,6 +202,23 @@ where
             executor,
             schema,
             Arc::new(NoCache::default()),
+            CompactionOption::Leveled,
+        )
+        .await
+    }
+
+    pub async fn with_compactor(
+        option: DbOption,
+        executor: E,
+        schema: R::Schema,
+        compactor: Box<dyn Compaction<R>>,
+    ) -> Result<Self, DbError<R>> {
+        Self::build(
+            Arc::new(option),
+            executor,
+            schema,
+            Arc::new(NoCache::default()),
+            CompactionOption::Customized(compactor),
         )
         .await
     }
@@ -217,6 +235,7 @@ where
         executor: E,
         schema: R::Schema,
         lru_cache: ParquetLru,
+        compaction_option: CompactionOption<R>,
     ) -> Result<Self, DbError<R>> {
         let record_schema = Arc::new(schema);
         let manager = Arc::new(StoreManager::new(
@@ -266,13 +285,22 @@ where
             version_set,
             record_schema.arrow_schema().clone(),
         ));
-        let mut compactor = match option.compaction_option {
+        let mut compactor = match compaction_option {
             CompactionOption::Leveled => Compactor::Leveled(LeveledCompactor::<R>::new(
                 schema.clone(),
                 record_schema,
                 option.clone(),
                 ctx.clone(),
             )),
+            CompactionOption::Customized(compactor) => {
+                Compactor::Customized(CustomizedCompactor::new(
+                    schema.clone(),
+                    record_schema,
+                    option,
+                    ctx.clone(),
+                    compactor,
+                ))
+            }
         };
 
         executor.spawn(async move {
@@ -1406,14 +1434,16 @@ pub(crate) mod tests {
             version_set,
             TestSchema.arrow_schema().clone(),
         ));
-        let mut compactor = match option.compaction_option {
-            CompactionOption::Leveled => Compactor::Leveled(LeveledCompactor::<R>::new(
+        let mut compactor =
+        // match option.compaction_option {
+        //     CompactionOption::Leveled =>
+            Compactor::Leveled(LeveledCompactor::<R>::new(
                 schema.clone(),
                 record_schema,
                 option.clone(),
                 ctx.clone(),
-            )),
-        };
+            ));
+        // };
 
         executor.spawn(async move {
             if let Err(err) = cleaner.listen().await {
