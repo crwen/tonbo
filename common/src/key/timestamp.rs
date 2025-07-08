@@ -1,4 +1,5 @@
 use std::{
+    any::Any,
     fmt::Debug,
     hash::{Hash, Hasher},
     sync::Arc,
@@ -11,8 +12,11 @@ use arrow::array::{
 use chrono::{DateTime, NaiveDateTime};
 use fusio_log::{Decode, Encode};
 
-use super::{Date32, Date64, Key, KeyRef, Time32, Time64};
-use crate::key::{MICROSECONDS, MILLISECONDS, NANOSECONDS, SECONDS_IN_DAY};
+use super::{Date32, Date64, Key, KeyRef, Time32, Time64, Value};
+use crate::{
+    datatype::DataType,
+    key::{MICROSECONDS, MILLISECONDS, NANOSECONDS, SECONDS_IN_DAY},
+};
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TimeUnit {
@@ -98,6 +102,10 @@ impl Key for Timestamp {
             TimeUnit::Nanosecond => Arc::new(TimestampNanosecondArray::new_scalar(self.ts)),
         }
     }
+
+    fn as_value(&self) -> &dyn Value {
+        self
+    }
 }
 
 impl<'r> KeyRef<'r> for Timestamp {
@@ -105,6 +113,42 @@ impl<'r> KeyRef<'r> for Timestamp {
 
     fn to_key(self) -> Self::Key {
         self
+    }
+}
+
+impl Value for Timestamp {
+    fn data_type(&self) -> DataType {
+        match &self.unit {
+            TimeUnit::Second => DataType::Timestamp(TimeUnit::Second),
+            TimeUnit::Millisecond => DataType::Timestamp(TimeUnit::Millisecond),
+            TimeUnit::Microsecond => DataType::Timestamp(TimeUnit::Microsecond),
+            TimeUnit::Nanosecond => DataType::Timestamp(TimeUnit::Nanosecond),
+        }
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn size_of(&self) -> usize {
+        8
+    }
+
+    fn to_arrow_datum(&self) -> Arc<dyn arrow::array::Datum> {
+        match self.unit {
+            TimeUnit::Second => Arc::new(TimestampSecondArray::new_scalar(self.ts)),
+            TimeUnit::Millisecond => Arc::new(TimestampMillisecondArray::new_scalar(self.ts)),
+            TimeUnit::Microsecond => Arc::new(TimestampMicrosecondArray::new_scalar(self.ts)),
+            TimeUnit::Nanosecond => Arc::new(TimestampNanosecondArray::new_scalar(self.ts)),
+        }
+    }
+
+    fn is_none(&self) -> bool {
+        false
+    }
+
+    fn is_some(&self) -> bool {
+        false
     }
 }
 
