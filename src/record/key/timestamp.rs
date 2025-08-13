@@ -4,9 +4,12 @@ use std::{
     sync::Arc,
 };
 
-use arrow::array::{
-    TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
-    TimestampSecondArray,
+use arrow::{
+    array::{
+        TimestampMicrosecondArray, TimestampMillisecondArray, TimestampNanosecondArray,
+        TimestampSecondArray,
+    },
+    datatypes::TimeUnit,
 };
 use chrono::{DateTime, NaiveDateTime};
 use fusio_log::{Decode, Encode};
@@ -14,66 +17,12 @@ use fusio_log::{Decode, Encode};
 use super::{Date32, Date64, Key, KeyRef, Time32, Time64};
 use crate::record::{MICROSECONDS, MILLISECONDS, NANOSECONDS, SECONDS_IN_DAY};
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub enum TimeUnit {
-    Second,
-    Millisecond,
-    Microsecond,
-    Nanosecond,
-}
-
-impl TimeUnit {
-    pub(crate) fn factor(&self) -> i64 {
-        match self {
-            TimeUnit::Second => 1_000_000_000,
-            TimeUnit::Millisecond => 1_000_000,
-            TimeUnit::Microsecond => 1_000,
-            TimeUnit::Nanosecond => 1,
-        }
-    }
-}
-
-impl From<arrow::datatypes::TimeUnit> for TimeUnit {
-    fn from(value: arrow::datatypes::TimeUnit) -> Self {
-        match value {
-            arrow::datatypes::TimeUnit::Second => TimeUnit::Second,
-            arrow::datatypes::TimeUnit::Millisecond => TimeUnit::Millisecond,
-            arrow::datatypes::TimeUnit::Microsecond => TimeUnit::Microsecond,
-            arrow::datatypes::TimeUnit::Nanosecond => TimeUnit::Nanosecond,
-        }
-    }
-}
-
-impl From<&arrow::datatypes::TimeUnit> for TimeUnit {
-    fn from(value: &arrow::datatypes::TimeUnit) -> Self {
-        match value {
-            arrow::datatypes::TimeUnit::Second => TimeUnit::Second,
-            arrow::datatypes::TimeUnit::Millisecond => TimeUnit::Millisecond,
-            arrow::datatypes::TimeUnit::Microsecond => TimeUnit::Microsecond,
-            arrow::datatypes::TimeUnit::Nanosecond => TimeUnit::Nanosecond,
-        }
-    }
-}
-
-impl From<TimeUnit> for arrow::datatypes::TimeUnit {
-    fn from(value: TimeUnit) -> Self {
-        match value {
-            TimeUnit::Second => arrow::datatypes::TimeUnit::Second,
-            TimeUnit::Millisecond => arrow::datatypes::TimeUnit::Millisecond,
-            TimeUnit::Microsecond => arrow::datatypes::TimeUnit::Microsecond,
-            TimeUnit::Nanosecond => arrow::datatypes::TimeUnit::Nanosecond,
-        }
-    }
-}
-
-impl Debug for TimeUnit {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TimeUnit::Second => write!(f, "Second"),
-            TimeUnit::Millisecond => write!(f, "Millisecond"),
-            TimeUnit::Microsecond => write!(f, "Microsecond"),
-            TimeUnit::Nanosecond => write!(f, "Nanosecond"),
-        }
+pub(crate) fn time_unit_factor(unit: &TimeUnit) -> i64 {
+    match unit {
+        TimeUnit::Second => 1_000_000_000,
+        TimeUnit::Millisecond => 1_000_000,
+        TimeUnit::Microsecond => 1_000,
+        TimeUnit::Nanosecond => 1,
     }
 }
 
@@ -151,7 +100,7 @@ impl Encode for Timestamp {
 
 impl PartialEq for Timestamp {
     fn eq(&self, other: &Self) -> bool {
-        self.ts * self.unit.factor() == other.ts * other.unit.factor()
+        self.ts * time_unit_factor(&self.unit) == other.ts * time_unit_factor(&other.unit)
     }
 }
 
@@ -165,13 +114,13 @@ impl PartialOrd for Timestamp {
 
 impl Ord for Timestamp {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        (self.ts * self.unit.factor()).cmp(&(other.ts * other.unit.factor()))
+        (self.ts * time_unit_factor(&self.unit)).cmp(&(other.ts * time_unit_factor(&other.unit)))
     }
 }
 
 impl Hash for Timestamp {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        (self.ts * self.unit.factor()).hash(state);
+        (self.ts * time_unit_factor(&self.unit)).hash(state);
     }
 }
 

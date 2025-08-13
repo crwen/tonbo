@@ -11,17 +11,17 @@ use arrow::{
         TimestampSecondBuilder, UInt16Builder, UInt32Builder, UInt64Builder, UInt8Builder,
     },
     datatypes::{
-        Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type, Schema as ArrowSchema,
-        UInt16Type, UInt32Type, UInt64Type, UInt8Type,
+        DataType, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type,
+        Schema as ArrowSchema, TimeUnit, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
     },
 };
 
-use super::{record::DynRecord, record_ref::DynRecordRef, AsValue, DataType};
+use super::{record::DynRecord, record_ref::DynRecordRef, AsValue};
 use crate::{
     magic::USER_COLUMN_OFFSET,
     record::{
         builder::NestedBuilder, ArrowArrays, ArrowArraysBuilder, Key, LargeBinary, LargeString,
-        Record, Schema, TimeUnit, ValueRef,
+        Record, Schema, ValueRef,
     },
     version::timestamp::Ts,
 };
@@ -72,7 +72,7 @@ macro_rules! implement_arrow_array {
                 let mut builders: Vec<Box<dyn ArrayBuilder + Send + Sync>> = vec![];
                 let mut datatypes = vec![];
                 for field in schema.fields().iter().skip(2) {
-                    let datatype = DataType::from(field.data_type());
+                    let datatype = field.data_type();
                     match &datatype {
                         $(
                             $primitive_pat => {
@@ -89,8 +89,9 @@ macro_rules! implement_arrow_array {
                         DataType::FixedSizeBinary(w) => builders.push(Box::new(FixedSizeBinaryBuilder::with_capacity(capacity, *w))),
                         DataType::List(_) | DataType::Dictionary(_, _) => builders.push(Box::new(NestedBuilder::with_capacity(field.clone(), capacity))),
                         DataType::Time32(_) | DataType::Time64(_) => unreachable!(),
+                        t => unimplemented!("datatype: {t:?} is not supported"),
                     }
-                    datatypes.push(datatype);
+                    datatypes.push(datatype.clone());
                 }
                 DynRecordBuilder {
                     builders,
@@ -165,7 +166,7 @@ macro_rules! implement_builder_array {
                         {
                             let field = self.schema.field(idx + USER_COLUMN_OFFSET);
                             let is_nullable = field.is_nullable();
-                            let datatype = DataType::from(field.data_type());
+                            let datatype = field.data_type();
                             match datatype {
                                 $(
                                     $primitive_pat => {
@@ -212,7 +213,7 @@ macro_rules! implement_builder_array {
                                     match col.as_bytes_opt() {
                                         Some(value) => bd.append_value(value).unwrap(),
                                         None if is_nullable => bd.append_null(),
-                                        None => bd.append_value(vec![0; w as usize]).unwrap(),
+                                        None => bd.append_value(vec![0; *w as usize]).unwrap(),
                                     }
                                 }
                                 DataType::List(_) | DataType::Dictionary(_, _) =>{
@@ -221,6 +222,7 @@ macro_rules! implement_builder_array {
                                     bd.append_value(col.clone())
                                 }
                                 DataType::Time32(_) | DataType::Time64(_) => unreachable!(),
+                                t => unimplemented!("datatype: {t:?} is not supported"),
                             }
                         }
                     }
@@ -293,6 +295,7 @@ macro_rules! implement_builder_array {
                                         bd.append_default();
                                     }
                                     DataType::Time32(_) | DataType::Time64(_) => unreachable!(),
+                                    t => unimplemented!("datatype: {t:?} is not supported"),
                                 }
                             } else {
                                 match datatype {
@@ -331,6 +334,7 @@ macro_rules! implement_builder_array {
                                         }
                                     }
                                     DataType::Time32(_) | DataType::Time64(_) => unreachable!(),
+                                    t => unimplemented!("datatype: {t:?} is not supported"),
                                 }
                             }
                         }
@@ -374,6 +378,7 @@ macro_rules! implement_builder_array {
                                 Self::as_builder::<NestedBuilder>(builder.as_ref()).bytes_written()
                             },
                             DataType::Time32(_) | DataType::Time64(_) => unreachable!(),
+                            t => unimplemented!("datatype: {t:?} is not supported"),
                         }
                     })
             }
@@ -436,6 +441,7 @@ macro_rules! implement_builder_array {
                         }
 
                         DataType::Time32(_) | DataType::Time64(_) => unreachable!(),
+                        t => unimplemented!("datatype: {t:?} is not supported"),
                     };
                 }
 
@@ -477,10 +483,10 @@ implement_arrow_array!(
         {  DataType::Float64, Float64Builder },
         {  DataType::Date32, Date32Builder },
         {  DataType::Date64, Date64Builder },
-        { DataType::Timestamp(TimeUnit::Second), TimestampSecondBuilder },
-        { DataType::Timestamp(TimeUnit::Millisecond), TimestampMillisecondBuilder },
-        { DataType::Timestamp(TimeUnit::Microsecond),TimestampMicrosecondBuilder },
-        { DataType::Timestamp(TimeUnit::Nanosecond),TimestampNanosecondBuilder },
+        { DataType::Timestamp(TimeUnit::Second, None), TimestampSecondBuilder },
+        { DataType::Timestamp(TimeUnit::Millisecond, None), TimestampMillisecondBuilder },
+        { DataType::Timestamp(TimeUnit::Microsecond, None),TimestampMicrosecondBuilder },
+        { DataType::Timestamp(TimeUnit::Nanosecond, None),TimestampNanosecondBuilder },
         { DataType::Time32(TimeUnit::Second), Time32SecondBuilder },
         { DataType::Time32(TimeUnit::Millisecond), Time32MillisecondBuilder },
         { DataType::Time64(TimeUnit::Microsecond),Time64MicrosecondBuilder },
@@ -488,9 +494,9 @@ implement_arrow_array!(
     },
     // f32, f64, and bool are special cases, they are handled separately
     {
-        { DataType::String, StringBuilder },
-        { DataType::LargeString, LargeStringBuilder },
-        { DataType::Bytes, GenericBinaryBuilder<i32> },
+        { DataType::Utf8, StringBuilder },
+        { DataType::LargeUtf8, LargeStringBuilder },
+        { DataType::Binary, GenericBinaryBuilder<i32> },
         { DataType::LargeBinary, GenericBinaryBuilder<i64> }
     },
 );
@@ -511,18 +517,18 @@ implement_builder_array!(
     },
     // String/binary types and bool are special cases, they are handled separately
     {
-        { String, DataType::String, StringBuilder, as_string_opt },
-        { LargeString, DataType::LargeString, LargeStringBuilder, as_string_opt },
-        { Vec<u8>, DataType::Bytes, GenericBinaryBuilder<i32>, as_bytes_opt },
+        { String, DataType::Utf8, StringBuilder, as_string_opt },
+        { LargeString, DataType::LargeUtf8, LargeStringBuilder, as_string_opt },
+        { Vec<u8>, DataType::Binary, GenericBinaryBuilder<i32>, as_bytes_opt },
         { LargeBinary, DataType::LargeBinary, GenericBinaryBuilder<i64>, as_bytes_opt }
     },
     {
         { Date32, DataType::Date32, Date32Builder, Date32Array, as_i32_opt },
         { Date64, DataType::Date64, Date64Builder, Date64Array, as_i64_opt },
-        { Timestamp, DataType::Timestamp(TimeUnit::Second), TimestampSecondBuilder, TimestampSecondArray, as_i64_opt },
-        { Timestamp, DataType::Timestamp(TimeUnit::Millisecond), TimestampMillisecondBuilder,  TimestampMillisecondArray, as_i64_opt },
-        { Timestamp, DataType::Timestamp(TimeUnit::Microsecond),TimestampMicrosecondBuilder, TimestampMicrosecondArray, as_i64_opt },
-        { Timestamp, DataType::Timestamp(TimeUnit::Nanosecond),TimestampNanosecondBuilder, TimestampNanosecondArray, as_i64_opt },
+        { Timestamp, DataType::Timestamp(TimeUnit::Second, None), TimestampSecondBuilder, TimestampSecondArray, as_i64_opt },
+        { Timestamp, DataType::Timestamp(TimeUnit::Millisecond, None), TimestampMillisecondBuilder,  TimestampMillisecondArray, as_i64_opt },
+        { Timestamp, DataType::Timestamp(TimeUnit::Microsecond, None),TimestampMicrosecondBuilder, TimestampMicrosecondArray, as_i64_opt },
+        { Timestamp, DataType::Timestamp(TimeUnit::Nanosecond, None),TimestampNanosecondBuilder, TimestampNanosecondArray, as_i64_opt },
         { Time32, DataType::Time32(TimeUnit::Second), Time32SecondBuilder, Time32SecondArray, as_i32_opt },
         { Time32, DataType::Time32(TimeUnit::Millisecond), Time32MillisecondBuilder,  Time32MillisecondArray, as_i32_opt },
         { Time64, DataType::Time64(TimeUnit::Microsecond),Time64MicrosecondBuilder, Time64MicrosecondArray, as_i64_opt },
@@ -535,7 +541,7 @@ mod tests {
 
     use std::sync::Arc;
 
-    use arrow::datatypes::{DataType, Field, TimeUnit as ArrowTimeUnit};
+    use arrow::datatypes::{DataType, Field, TimeUnit};
     use parquet::arrow::ProjectionMask;
 
     use crate::{
@@ -543,7 +549,7 @@ mod tests {
         record::{
             ArrowArrays, ArrowArraysBuilder, DictionaryKeyType, DynRecord,
             DynRecordImmutableArrays, DynRecordRef, DynSchema, DynamicField, Record, RecordRef,
-            Schema, TimeUnit, Value, ValueRef,
+            Schema, Value, ValueRef,
         },
     };
 
@@ -756,7 +762,7 @@ mod tests {
         let ty2 = DataType::List(Arc::new(Field::new("cofloatde", DataType::Float32, true)));
         let ty3 = DataType::List(Arc::new(Field::new(
             "time",
-            DataType::Time32(ArrowTimeUnit::Second),
+            DataType::Time32(TimeUnit::Second),
             true,
         )));
         let schema = DynSchema::new(
@@ -791,7 +797,7 @@ mod tests {
                     ],
                 ),
                 Value::List(
-                    DataType::Time32(ArrowTimeUnit::Second),
+                    DataType::Time32(TimeUnit::Second),
                     vec![
                         Arc::new(Value::Time32(1, TimeUnit::Second)),
                         Arc::new(Value::Time32(2, TimeUnit::Second)),

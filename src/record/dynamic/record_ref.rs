@@ -126,12 +126,12 @@ impl<'r> RecordRef<'r> for DynRecordRef<'r> {
 #[cfg(test)]
 mod tests {
 
-    use arrow::datatypes::{DataType, TimeUnit as ArrowTimeUnit};
+    use arrow::datatypes::{DataType, TimeUnit};
     use parquet::arrow::{ArrowSchemaConverter, ProjectionMask};
 
     use crate::{
         dyn_schema, make_dyn_schema,
-        record::{DynRecord, Record, RecordRef, Schema, TimeUnit, Value, ValueRef},
+        record::{DynRecord, Record, RecordRef, Schema, Value, ValueRef},
     };
 
     #[test]
@@ -254,22 +254,22 @@ mod tests {
             ("_ts", DataType::UInt32, false),
             (
                 "id",
-                DataType::Timestamp(ArrowTimeUnit::Millisecond, None),
+                DataType::Timestamp(TimeUnit::Millisecond, None),
                 false
             ),
             (
                 "ts1",
-                DataType::Timestamp(ArrowTimeUnit::Millisecond, None),
+                DataType::Timestamp(TimeUnit::Millisecond, None),
                 false
             ),
             (
                 "ts2",
-                DataType::Timestamp(ArrowTimeUnit::Millisecond, None),
+                DataType::Timestamp(TimeUnit::Millisecond, None),
                 true
             ),
             (
                 "ts3",
-                DataType::Timestamp(ArrowTimeUnit::Millisecond, None),
+                DataType::Timestamp(TimeUnit::Millisecond, None),
                 true
             ),
             2

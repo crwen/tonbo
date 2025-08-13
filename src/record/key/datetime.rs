@@ -3,14 +3,17 @@ use std::{
     sync::Arc,
 };
 
-use arrow::array::{
-    Date32Array, Date64Array, Time32MillisecondArray, Time32SecondArray, Time64MicrosecondArray,
-    Time64NanosecondArray,
+use arrow::{
+    array::{
+        Date32Array, Date64Array, Time32MillisecondArray, Time32SecondArray,
+        Time64MicrosecondArray, Time64NanosecondArray,
+    },
+    datatypes::TimeUnit,
 };
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use fusio_log::{Decode, Encode};
 
-use crate::record::{Key, KeyRef, TimeUnit};
+use crate::record::{time_unit_factor, Key, KeyRef};
 
 /// Number of seconds in a day
 pub const SECONDS_IN_DAY: i64 = 86_400;
@@ -88,8 +91,8 @@ macro_rules! make_time_type {
         }
         impl PartialEq for $struct_name {
             fn eq(&self, other: &Self) -> bool {
-                self.unit.factor() as $time_ty * self.time
-                    == other.unit.factor() as $time_ty * other.time
+                time_unit_factor(&self.unit) as $time_ty * self.time
+                    == time_unit_factor(&other.unit) as $time_ty * other.time
             }
         }
 
@@ -103,14 +106,14 @@ macro_rules! make_time_type {
 
         impl Ord for $struct_name {
             fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-                (self.unit.factor() as $time_ty * self.time)
-                    .cmp(&(other.unit.factor() as $time_ty * other.time))
+                (time_unit_factor(&self.unit) as $time_ty * self.time)
+                    .cmp(&(time_unit_factor(&other.unit) as $time_ty * other.time))
             }
         }
 
         impl Hash for $struct_name {
             fn hash<H: Hasher>(&self, state: &mut H) {
-                (self.unit.factor() as $time_ty * self.time).hash(state);
+                (time_unit_factor(&self.unit) as $time_ty * self.time).hash(state);
             }
         }
     };

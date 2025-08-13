@@ -9,11 +9,11 @@ use arrow::{
     },
     datatypes::{
         DataType, Field, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type,
-        TimeUnit as ArrowTimeUnit, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
+        TimeUnit, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
     },
 };
 
-use crate::record::{split_second_ns, DictionaryKeyType, Key, KeyRef, TimeUnit, Value, ValueError};
+use crate::record::{split_second_ns, DictionaryKeyType, Key, KeyRef, Value, ValueError};
 
 /// A reference type for Value that avoids cloning
 #[derive(Debug)]
@@ -186,7 +186,7 @@ impl<'a> ValueRef<'a> {
                 Ok(ValueRef::Date64(arr.value(index)))
             }
             DataType::Timestamp(unit, _) => match unit {
-                ArrowTimeUnit::Second => {
+                TimeUnit::Second => {
                     let arr = array
                         .as_any()
                         .downcast_ref::<TimestampSecondArray>()
@@ -195,7 +195,7 @@ impl<'a> ValueRef<'a> {
                         })?;
                     Ok(ValueRef::Timestamp(arr.value(index), TimeUnit::Second))
                 }
-                ArrowTimeUnit::Millisecond => {
+                TimeUnit::Millisecond => {
                     let arr = array
                         .as_any()
                         .downcast_ref::<TimestampMillisecondArray>()
@@ -204,7 +204,7 @@ impl<'a> ValueRef<'a> {
                         })?;
                     Ok(ValueRef::Timestamp(arr.value(index), TimeUnit::Millisecond))
                 }
-                ArrowTimeUnit::Microsecond => {
+                TimeUnit::Microsecond => {
                     let arr = array
                         .as_any()
                         .downcast_ref::<TimestampMicrosecondArray>()
@@ -213,7 +213,7 @@ impl<'a> ValueRef<'a> {
                         })?;
                     Ok(ValueRef::Timestamp(arr.value(index), TimeUnit::Microsecond))
                 }
-                ArrowTimeUnit::Nanosecond => {
+                TimeUnit::Nanosecond => {
                     let arr = array
                         .as_any()
                         .downcast_ref::<TimestampNanosecondArray>()
@@ -225,7 +225,7 @@ impl<'a> ValueRef<'a> {
             },
 
             DataType::Time32(unit) => match unit {
-                ArrowTimeUnit::Second => {
+                TimeUnit::Second => {
                     let arr = array
                         .as_any()
                         .downcast_ref::<Time32SecondArray>()
@@ -234,7 +234,7 @@ impl<'a> ValueRef<'a> {
                         })?;
                     Ok(ValueRef::Time32(arr.value(index), TimeUnit::Second))
                 }
-                ArrowTimeUnit::Millisecond => {
+                TimeUnit::Millisecond => {
                     let arr = array
                         .as_any()
                         .downcast_ref::<Time32MillisecondArray>()
@@ -246,7 +246,7 @@ impl<'a> ValueRef<'a> {
                 _ => unreachable!("Time32 only supports second and millisecond"),
             },
             DataType::Time64(unit) => match unit {
-                ArrowTimeUnit::Microsecond => {
+                TimeUnit::Microsecond => {
                     let arr = array
                         .as_any()
                         .downcast_ref::<Time64MicrosecondArray>()
@@ -255,7 +255,7 @@ impl<'a> ValueRef<'a> {
                         })?;
                     Ok(ValueRef::Time64(arr.value(index), TimeUnit::Second))
                 }
-                ArrowTimeUnit::Nanosecond => {
+                TimeUnit::Nanosecond => {
                     let arr = array
                         .as_any()
                         .downcast_ref::<Time64NanosecondArray>()
@@ -629,10 +629,10 @@ mod tests {
             ArrayRef, BinaryArray, DictionaryArray, FixedSizeBinaryArray, Int16Array, Int32Array,
             Int8Array, StringArray, Time32SecondArray, TimestampMillisecondArray, UInt8Array,
         },
-        datatypes::{DataType, Field},
+        datatypes::{DataType, Field, TimeUnit},
     };
 
-    use crate::record::{AsValue, DictionaryKeyType, TimeUnit, Value, ValueRef};
+    use crate::record::{AsValue, DictionaryKeyType, Value, ValueRef};
 
     #[test]
     fn test_value_ref_basic_types() {

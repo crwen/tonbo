@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arrow::datatypes::Field;
+use arrow::datatypes::{Field, TimeUnit};
 use fusio_log::{Decode, Encode};
 #[cfg(not(target_arch = "wasm32"))]
 use futures_util::future::BoxFuture;
@@ -8,7 +8,7 @@ use futures_util::future::BoxFuture;
 use futures_util::future::LocalBoxFuture;
 use futures_util::FutureExt;
 
-use crate::record::TimeUnit;
+use crate::record::time_unit_factor;
 
 #[cfg(not(target_arch = "wasm32"))]
 type BoxedFuture<'a, T> = BoxFuture<'a, T>;
@@ -17,9 +17,9 @@ type BoxedFuture<'a, T> = LocalBoxFuture<'a, T>;
 
 /// Split a timestamp value into seconds and nanoseconds
 pub(crate) fn split_second_ns(v: i64, unit: TimeUnit) -> (i64, u32) {
-    let base = TimeUnit::Second.factor() / unit.factor();
+    let base = time_unit_factor(&TimeUnit::Second) / time_unit_factor(&unit);
     let sec = v.div_euclid(base);
-    let nsec = v.rem_euclid(base) * unit.factor();
+    let nsec = v.rem_euclid(base) * time_unit_factor(&unit);
     (sec, nsec as u32)
 }
 
@@ -31,10 +31,10 @@ where
     W: fusio::Write,
 {
     match time_unit {
-        arrow::datatypes::TimeUnit::Second => 0u8.encode(writer).await?,
-        arrow::datatypes::TimeUnit::Millisecond => 1u8.encode(writer).await?,
-        arrow::datatypes::TimeUnit::Microsecond => 2u8.encode(writer).await?,
-        arrow::datatypes::TimeUnit::Nanosecond => 3u8.encode(writer).await?,
+        TimeUnit::Second => 0u8.encode(writer).await?,
+        TimeUnit::Millisecond => 1u8.encode(writer).await?,
+        TimeUnit::Microsecond => 2u8.encode(writer).await?,
+        TimeUnit::Nanosecond => 3u8.encode(writer).await?,
     };
     Ok(())
 }
@@ -204,7 +204,7 @@ where
 mod tests {
     use std::io::{Cursor, SeekFrom};
 
-    use arrow::datatypes::DataType;
+    use arrow::datatypes::{DataType, TimeUnit};
     use tokio::io::AsyncSeekExt;
 
     use super::*;
@@ -233,21 +233,32 @@ mod tests {
         let mut buf = Vec::new();
         let mut cursor = Cursor::new(&mut buf);
 
-        TimeUnit::Second.encode(&mut cursor).await.unwrap();
-        TimeUnit::Millisecond.encode(&mut cursor).await.unwrap();
-        TimeUnit::Microsecond.encode(&mut cursor).await.unwrap();
-        TimeUnit::Nanosecond.encode(&mut cursor).await.unwrap();
+        encode_arrow_timeunit(&TimeUnit::Second, &mut cursor)
+            .await
+            .unwrap();
+        encode_arrow_timeunit(&TimeUnit::Millisecond, &mut cursor)
+            .await
+            .unwrap();
+        encode_arrow_timeunit(&TimeUnit::Microsecond, &mut cursor)
+            .await
+            .unwrap();
+        encode_arrow_timeunit(&TimeUnit::Nanosecond, &mut cursor)
+            .await
+            .unwrap();
 
         cursor.seek(SeekFrom::Start(0)).await.unwrap();
 
         let time_unit = decode_arrow_timeunit(&mut cursor).await.unwrap();
-        assert_eq!(time_unit, arrow::datatypes::TimeUnit::Second);
+        assert_eq!(time_unit, TimeUnit::Second);
 
         let time_unit = decode_arrow_timeunit(&mut cursor).await.unwrap();
-        assert_eq!(time_unit, arrow::datatypes::TimeUnit::Millisecond);
+        assert_eq!(time_unit, TimeUnit::Millisecond);
 
         let time_unit = decode_arrow_timeunit(&mut cursor).await.unwrap();
-        assert_eq!(time_unit, arrow::datatypes::TimeUnit::Microsecond);
+        assert_eq!(time_unit, TimeUnit::Microsecond);
+
+        let time_unit = decode_arrow_timeunit(&mut cursor).await.unwrap();
+        assert_eq!(time_unit, TimeUnit::Nanosecond);
     }
 
     #[should_panic]

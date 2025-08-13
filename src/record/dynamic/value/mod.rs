@@ -10,14 +10,14 @@ use std::{
     sync::Arc,
 };
 
-use arrow::datatypes::{DataType, Field};
+use arrow::datatypes::{DataType, Field, TimeUnit};
 pub use cast::*;
 pub use dict::*;
 use thiserror::Error;
 pub(crate) use util::*;
 pub use value_ref::*;
 
-use crate::record::{Key, TimeUnit};
+use crate::record::Key;
 
 #[derive(Debug, Error)]
 pub enum ValueError {
@@ -84,31 +84,9 @@ impl Value {
             Value::FixedSizeBinary(_, byte_width) => DataType::FixedSizeBinary(*byte_width as i32),
             Value::Date32(_) => DataType::Date32,
             Value::Date64(_) => DataType::Date64,
-            Value::Timestamp(_, unit) => {
-                let arrow_unit = match unit {
-                    TimeUnit::Second => arrow::datatypes::TimeUnit::Second,
-                    TimeUnit::Millisecond => arrow::datatypes::TimeUnit::Millisecond,
-                    TimeUnit::Microsecond => arrow::datatypes::TimeUnit::Microsecond,
-                    TimeUnit::Nanosecond => arrow::datatypes::TimeUnit::Nanosecond,
-                };
-                DataType::Timestamp(arrow_unit, None)
-            }
-            Value::Time32(_, unit) => {
-                let arrow_unit = match unit {
-                    TimeUnit::Second => arrow::datatypes::TimeUnit::Second,
-                    TimeUnit::Millisecond => arrow::datatypes::TimeUnit::Millisecond,
-                    _ => unreachable!("Time32 only supports second and millisecond"),
-                };
-                DataType::Time32(arrow_unit)
-            }
-            Value::Time64(_, unit) => {
-                let arrow_unit = match unit {
-                    TimeUnit::Microsecond => arrow::datatypes::TimeUnit::Microsecond,
-                    TimeUnit::Nanosecond => arrow::datatypes::TimeUnit::Nanosecond,
-                    _ => unreachable!("Time64 only supports microsecond and nanosecond"),
-                };
-                DataType::Time64(arrow_unit)
-            }
+            Value::Timestamp(_, unit) => DataType::Timestamp(*unit, None),
+            Value::Time32(_, unit) => DataType::Time32(*unit),
+            Value::Time64(_, unit) => DataType::Time64(*unit),
             Value::List(data_type, _) => arrow::datatypes::DataType::List(Arc::new(Field::new(
                 "item",
                 data_type.clone(),
@@ -397,9 +375,9 @@ impl fmt::Display for Value {
 mod tests {
     use std::sync::Arc;
 
-    use arrow::datatypes::{DataType, Field};
+    use arrow::datatypes::{DataType, Field, TimeUnit};
 
-    use crate::record::{AsValue, DictionaryKeyType, TimeUnit, Value};
+    use crate::record::{AsValue, DictionaryKeyType, Value};
 
     #[test]
     fn test_value_basic_types() {

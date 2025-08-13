@@ -101,14 +101,14 @@ impl Record for DynRecord {
 pub(crate) mod test {
     use std::io::{Cursor, SeekFrom};
 
-    use arrow::datatypes::{DataType, TimeUnit as ArrowTimeUnit};
+    use arrow::datatypes::{DataType, TimeUnit};
     use fusio_log::{Decode, Encode};
     use tokio::io::AsyncSeekExt;
 
     use super::{DynRecord, DynSchema, Record};
     use crate::{
         make_dyn_schema,
-        record::{DynRecordRef, TimeUnit, Value, ValueRef},
+        record::{DynRecordRef, Value, ValueRef},
     };
 
     #[allow(unused)]
@@ -126,7 +126,7 @@ pub(crate) mod test {
             ("price", DataType::Float64, true),
             (
                 "timestamp",
-                DataType::Timestamp(ArrowTimeUnit::Millisecond, None),
+                DataType::Timestamp(TimeUnit::Millisecond, None),
                 true
             ),
             0

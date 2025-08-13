@@ -9,7 +9,7 @@ use futures_util::future::BoxFuture;
 use futures_util::future::LocalBoxFuture;
 use futures_util::FutureExt;
 
-use super::{TimeUnit, Value};
+use super::Value;
 use crate::record::{decode_arrow_datatype, encode_arrow_datatype, ValueError, ValueRef};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -137,10 +137,9 @@ impl Value {
                 )),
                 DataType::Date32 => Ok(Value::Date32(i32::decode(reader).await?)),
                 DataType::Date64 => Ok(Value::Date64(i64::decode(reader).await?)),
-                DataType::Timestamp(time_unit, _) => Ok(Value::Timestamp(
-                    i64::decode(reader).await?,
-                    time_unit.into(),
-                )),
+                DataType::Timestamp(time_unit, _) => {
+                    Ok(Value::Timestamp(i64::decode(reader).await?, *time_unit))
+                }
                 DataType::Time32(time_unit) => {
                     if matches!(
                         time_unit,
@@ -149,7 +148,7 @@ impl Value {
                     ) {
                         unreachable!()
                     }
-                    Ok(Value::Time32(i32::decode(reader).await?, time_unit.into()))
+                    Ok(Value::Time32(i32::decode(reader).await?, *time_unit))
                 }
                 DataType::Time64(time_unit) => {
                     if matches!(
@@ -159,7 +158,7 @@ impl Value {
                     ) {
                         unreachable!()
                     }
-                    Ok(Value::Time64(i64::decode(reader).await?, time_unit.into()))
+                    Ok(Value::Time64(i64::decode(reader).await?, *time_unit))
                 }
                 DataType::List(field) => {
                     let len = u32::decode(reader).await?;
@@ -216,9 +215,9 @@ impl Encode for Value {
             Value::FixedSizeBinary(v, _) => 1 + v.size(),
             Value::Date32(v) => 1 + v.size(),
             Value::Date64(v) => 1 + v.size(),
-            Value::Timestamp(v, time_unit) => 1 + v.size() + time_unit.size(),
-            Value::Time32(v, time_unit) => 1 + v.size() + time_unit.size(),
-            Value::Time64(v, time_unit) => 1 + v.size() + time_unit.size(),
+            Value::Timestamp(v, _) => 1 + v.size() + 1,
+            Value::Time32(v, _) => 1 + v.size() + 1,
+            Value::Time64(v, _) => 1 + v.size() + 1,
             Value::List(data_type, vec) => {
                 vec.iter().map(|v| v.size()).sum::<usize>()
                     + match data_type {
@@ -239,40 +238,6 @@ impl Decode for Value {
         R: fusio::SeqRead,
     {
         Self::decode_inner(reader).await
-    }
-}
-
-impl Encode for TimeUnit {
-    async fn encode<W>(&self, writer: &mut W) -> Result<(), fusio::Error>
-    where
-        W: fusio::Write,
-    {
-        match self {
-            TimeUnit::Second => 0u8.encode(writer).await,
-            TimeUnit::Millisecond => 1u8.encode(writer).await,
-            TimeUnit::Microsecond => 2u8.encode(writer).await,
-            TimeUnit::Nanosecond => 3u8.encode(writer).await,
-        }
-    }
-
-    fn size(&self) -> usize {
-        1
-    }
-}
-
-impl Decode for TimeUnit {
-    async fn decode<R>(reader: &mut R) -> Result<Self, fusio::Error>
-    where
-        R: fusio::SeqRead,
-    {
-        let unit = u8::decode(reader).await?;
-        match unit {
-            0 => Ok(TimeUnit::Second),
-            1 => Ok(TimeUnit::Millisecond),
-            2 => Ok(TimeUnit::Microsecond),
-            3 => Ok(TimeUnit::Nanosecond),
-            _ => panic!("Invalid TimeUnit"),
-        }
     }
 }
 
@@ -397,9 +362,9 @@ impl Encode for ValueRef<'_> {
             ValueRef::FixedSizeBinary(v, _) => 1 + v.size(),
             ValueRef::Date32(v) => 1 + v.size(),
             ValueRef::Date64(v) => 1 + v.size(),
-            ValueRef::Timestamp(v, time_unit) => 1 + v.size() + time_unit.size(),
-            ValueRef::Time32(v, time_unit) => 1 + v.size() + time_unit.size(),
-            ValueRef::Time64(v, time_unit) => 1 + v.size() + time_unit.size(),
+            ValueRef::Timestamp(v, _) => 1 + v.size() + 1,
+            ValueRef::Time32(v, _) => 1 + v.size() + 1,
+            ValueRef::Time64(v, _) => 1 + v.size() + 1,
             ValueRef::List(data_type, vec) => {
                 vec.iter().map(|v| v.size()).sum::<usize>()
                     + match data_type {
@@ -418,7 +383,7 @@ impl Encode for ValueRef<'_> {
 mod tests {
     use std::io::{Cursor, SeekFrom};
 
-    use arrow::datatypes::Field;
+    use arrow::datatypes::{Field, TimeUnit};
     use fusio_log::{Decode, Encode};
     use tokio::io::AsyncSeekExt;
 
