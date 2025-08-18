@@ -6,8 +6,8 @@ use crate::record::{error::RecordError, Key, Record};
 
 #[derive(Debug)]
 pub struct DynRecord {
-    values: Vec<Value>,
-    primary_index: usize,
+    pub values: Vec<Value>,
+    pub primary_index: usize,
 }
 
 #[allow(unused)]

@@ -6,11 +6,12 @@ use arrow::{
         BooleanBuilder, Date32Builder, Date64Builder, FixedSizeBinaryBuilder,
         FixedSizeBinaryDictionaryBuilder, Float32Builder, Float64Builder, Int16Builder,
         Int32Builder, Int64Builder, Int8Builder, LargeBinaryBuilder, LargeBinaryDictionaryBuilder,
-        LargeStringBuilder, LargeStringDictionaryBuilder, ListBuilder, PrimitiveDictionaryBuilder,
-        StringBuilder, StringDictionaryBuilder, Time32MillisecondBuilder, Time32SecondBuilder,
-        Time64MicrosecondBuilder, Time64NanosecondBuilder, TimestampMicrosecondBuilder,
-        TimestampMillisecondBuilder, TimestampNanosecondBuilder, TimestampSecondBuilder,
-        UInt16Builder, UInt32Builder, UInt64Builder, UInt8Builder,
+        LargeStringBuilder, LargeStringDictionaryBuilder, ListBuilder, MapBuilder,
+        PrimitiveDictionaryBuilder, StringBuilder, StringDictionaryBuilder,
+        Time32MillisecondBuilder, Time32SecondBuilder, Time64MicrosecondBuilder,
+        Time64NanosecondBuilder, TimestampMicrosecondBuilder, TimestampMillisecondBuilder,
+        TimestampNanosecondBuilder, TimestampSecondBuilder, UInt16Builder, UInt32Builder,
+        UInt64Builder, UInt8Builder,
     },
     datatypes::{
         DataType, Field, FieldRef, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type,
@@ -310,6 +311,48 @@ impl NestedBuilder {
                     _ => unreachable!("Unsupported key type: {key_type:?}"),
                 }
             }
+            DataType::Map(field, _) => {
+                let bd = Self::as_builder_mut::<
+                    MapBuilder<Box<dyn ArrayBuilder>, Box<dyn ArrayBuilder>>,
+                >(builder);
+
+                match field.data_type() {
+                    DataType::Struct(fields) => {
+                        debug_assert!(fields.len() == 2);
+                        let key_data_type = fields.first().unwrap().data_type();
+                        let val_data_type = fields.get(1).unwrap().data_type();
+                        match value {
+                            ValueRef::Null => {
+                                bd.append(false).unwrap();
+                            }
+                            ValueRef::Map(_, keys, values, _) => {
+                                let key_bd = bd.keys();
+                                keys.iter().for_each(|key| {
+                                    Self::append_value_inner(
+                                        key_bd,
+                                        key_data_type,
+                                        key.as_ref().clone(),
+                                    );
+                                });
+                                let val_bd = bd.values();
+
+                                values.iter().for_each(|value| {
+                                    Self::append_value_inner(
+                                        val_bd,
+                                        val_data_type,
+                                        value.as_ref().clone(),
+                                    );
+                                });
+                                bd.append(true).unwrap();
+                            }
+                            _ => unreachable!(
+                                "Value is mismatch with data type: {data_type:?}, {value:?}"
+                            ),
+                        }
+                    }
+                    _ => unreachable!("Unexpected field: {field:?}"),
+                }
+            }
             DataType::Struct(_) => todo!(),
             _ => unimplemented!(),
         }
@@ -508,6 +551,12 @@ impl NestedBuilder {
                     _ => unreachable!("Unsupported key type: {key_type:?}"),
                 }
             }
+            DataType::Map(field, sorted) => ValueRef::Map(
+                field.data_type().clone(),
+                Arc::new([]),
+                Arc::new([]),
+                *sorted,
+            ),
             _ => unreachable!("Unsupported data type: {data_type:?}"),
         }
     }
@@ -542,7 +591,7 @@ impl ArrayBuilder for NestedBuilder {
 #[cfg(test)]
 mod tests {
     use arrow::{
-        array::{Array, AsArray, PrimitiveArray},
+        array::{Array, AsArray, Int32Array, MapBuilder, PrimitiveArray, StringArray},
         datatypes::{DataType, Field, Int32Type},
     };
 
@@ -863,5 +912,65 @@ mod tests {
             let keys = dict_array.keys();
             assert_eq!(keys.values(), &[0, 0]);
         }
+    }
+
+    #[test]
+    fn test_map_append_value() {
+        {
+            let data_type = DataType::Map(
+                FieldRef::new(Field::new("key", DataType::LargeUtf8, false)),
+                false,
+            );
+            let field = Arc::new(Field::new("maps", data_type.clone(), false));
+            let mut builder = NestedBuilder::with_capacity(field, 2);
+
+            builder.append_default();
+            builder.append_default();
+
+            let array = builder.finish();
+            let dict_array = array.as_dictionary::<Int8Type>();
+            assert_eq!(dict_array.len(), 2);
+            let values = dict_array.values().as_string::<i64>();
+            assert_eq!(values.len(), 1);
+            assert_eq!(values.value(0), "");
+
+            let keys = dict_array.keys();
+            assert_eq!(keys.values(), &[0, 0]);
+        }
+    }
+
+    #[test]
+    fn test_map_builder() {
+        let string_builder = StringBuilder::new();
+        let int_builder = Int32Builder::with_capacity(4);
+
+        // Construct `[{"joe": 1}, {"blogs": 2, "foo": 4}, {}, null, {"joe": 1}]`
+        let mut builder = MapBuilder::new(None, string_builder, int_builder);
+
+        builder.keys().append_value("joe");
+        builder.values().append_value(1);
+        builder.append(true).unwrap();
+
+        builder.keys().append_value("blogs");
+        builder.values().append_value(2);
+        builder.keys().append_value("foo");
+        builder.values().append_value(4);
+        builder.append(true).unwrap();
+
+        builder.append(true).unwrap();
+
+        builder.append(false).unwrap();
+
+        builder.keys().append_value("joe");
+        builder.values().append_value(1);
+        builder.append(true).unwrap();
+        let array = builder.finish();
+        dbg!(array.data_type(), array.len());
+        assert_eq!(array.value_offsets(), &[0, 1, 3, 3, 3, 4]);
+        assert_eq!(array.values().as_ref(), &Int32Array::from(vec![1, 2, 4, 1]));
+        assert_eq!(
+            array.keys().as_ref(),
+            &StringArray::from(vec!["joe", "blogs", "foo", "joe"])
+        );
     }
 }

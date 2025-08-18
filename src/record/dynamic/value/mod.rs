@@ -61,6 +61,7 @@ pub enum Value {
     /// List of values that are of the same type.
     List(DataType, Vec<Arc<Value>>),
     Dictionary(DictionaryKeyType, Box<Value>),
+    Map(DataType, Arc<[Arc<Value>]>, Arc<[Arc<Value>]>, bool),
 }
 
 impl Value {
@@ -90,10 +91,24 @@ impl Value {
             Value::List(data_type, _) => arrow::datatypes::DataType::List(Arc::new(Field::new(
                 "item",
                 data_type.clone(),
-                false,
+                true,
             ))),
             Value::Dictionary(key_type, value) => {
                 DataType::Dictionary(Box::new(key_type.into()), Box::new(value.data_type()))
+            }
+            Value::Map(data_type, _, _, sorted) => {
+                if let DataType::Struct(fields) = data_type {
+                    debug_assert!(
+                        fields.len() == 2,
+                        "Map data type must only have 2 fields in struct"
+                    );
+                    DataType::Map(
+                        Arc::new(Field::new("item", DataType::Struct(fields.clone()), true)),
+                        *sorted,
+                    )
+                } else {
+                    panic!("Map data type must be a struct")
+                }
             }
         }
     }
@@ -163,8 +178,8 @@ impl Key for Value {
             Value::List(_, _) => {
                 unreachable!("List value cannot be used as primary key.")
             }
-            Value::Dictionary(_key_type, _value) => {
-                unimplemented!("Dictionary value cannot be be used as primary key for now")
+            t => {
+                unreachable!("{:?} cannot be used as primary key", t)
             }
         };
         vec![datum]
@@ -223,6 +238,9 @@ impl PartialEq for Value {
             (Value::Dictionary(key_type1, value1), Value::Dictionary(key_type2, value2)) => {
                 key_type1 == key_type2 && value1.eq(value2)
             }
+            (Value::Map(ty1, key1, val1, sorted1), Value::Map(ty2, key2, val2, sorted2)) => {
+                sorted1 == sorted2 && ty1 == ty2 && key1.eq(key2) && val1.eq(val2)
+            }
             _ => false,
         }
     }
@@ -277,8 +295,8 @@ impl Ord for Value {
             (Value::Dictionary(_key_type1, _value1), Value::Dictionary(_key_type2, _value2)) => {
                 unimplemented!("compare operation for dictionary is not supported")
             }
-            _ => {
-                panic!("cannot compare different types: {self:?} and {other:?}")
+            t => {
+                panic!("compare operation for {t:?} is not supported")
             }
         }
     }
@@ -330,6 +348,12 @@ impl Hash for Value {
                 key_type.hash(state);
                 value.hash(state);
             }
+            Value::Map(ty, key, val, sorted) => {
+                ty.hash(state);
+                key.hash(state);
+                val.hash(state);
+                sorted.hash(state);
+            }
         }
     }
 }
@@ -367,6 +391,9 @@ impl fmt::Display for Value {
                     .join(", ")
             ),
             Value::Dictionary(key_type, value) => write!(f, "Dictionary({key_type:?}, {value:?})"),
+            Value::Map(ty, key, val, sorted) => {
+                write!(f, "Map({ty:?}, {key:?}, {val:?}, {sorted:?})")
+            }
         }
     }
 }

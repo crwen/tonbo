@@ -97,6 +97,13 @@ impl Value {
                 Value::Dictionary(_, value) => {
                     value.encode_inner(writer).await?;
                 }
+                Value::Map(_, keys, values, _) => {
+                    (keys.len() as u32).encode(writer).await?;
+                    for (key, value) in keys.iter().zip(values.iter()) {
+                        key.encode_inner(writer).await?;
+                        value.encode_inner(writer).await?;
+                    }
+                }
             }
             Ok(())
         };
@@ -172,6 +179,23 @@ impl Value {
                     let value = Box::new(Value::decode_inner(reader).await?);
                     Ok(Value::Dictionary(key_type.as_ref().into(), value))
                 }
+                DataType::Map(field, sorted) => {
+                    let len = u32::decode(reader).await?;
+                    let mut keys = Vec::with_capacity(len as usize);
+                    let mut values = Vec::with_capacity(len as usize);
+                    for _ in 0..len {
+                        let key = Value::decode(reader).await.unwrap();
+                        let value = Value::decode(reader).await.unwrap();
+                        keys.push(Arc::new(key));
+                        values.push(Arc::new(value));
+                    }
+                    Ok(Value::Map(
+                        field.data_type().clone(),
+                        keys.into_iter().collect(),
+                        values.into_iter().collect(),
+                        *sorted,
+                    ))
+                }
                 _ => Err(fusio::Error::Other(Box::new(ValueError::InvalidDataType(
                     data_type.to_string(),
                 )))),
@@ -228,6 +252,15 @@ impl Encode for Value {
                     }
             }
             Value::Dictionary(key_type, value) => 1 + key_type.size() + value.size(),
+            // TODO: calculate the size of map
+            Value::Map(data_type, keys, values, _) => {
+                2 + data_type.size()
+                    + keys.len()
+                    + keys
+                        .iter()
+                        .zip(values.iter())
+                        .fold(0, |acc, (k, v)| acc + k.size() + v.size())
+            }
         }
     }
 }
@@ -321,6 +354,13 @@ impl ValueRef<'_> {
                 ValueRef::Dictionary(_, value_ref) => {
                     value_ref.encode_inner(writer).await?;
                 }
+                ValueRef::Map(_, keys, values, _) => {
+                    (keys.len() as u32).encode(writer).await?;
+                    for (key, value) in keys.iter().zip(values.iter()) {
+                        key.encode_inner(writer).await?;
+                        value.encode_inner(writer).await?;
+                    }
+                }
             }
             Ok(())
         };
@@ -374,7 +414,17 @@ impl Encode for ValueRef<'_> {
                         _ => 1,
                     }
             }
-            ValueRef::Dictionary(key_type, value_ref) => 1 + key_type.size() + value_ref.size(),
+            ValueRef::Dictionary(key_type, value_ref) => {
+                1 + key_type.size() + value_ref.data_type().size() + value_ref.size()
+            }
+            ValueRef::Map(data_type, keys, values, _) => {
+                2 + data_type.size()
+                    + keys.len()
+                    + keys
+                        .iter()
+                        .zip(values.iter())
+                        .fold(0, |acc, (k, v)| acc + k.size() + v.size())
+            }
         }
     }
 }
@@ -383,7 +433,7 @@ impl Encode for ValueRef<'_> {
 mod tests {
     use std::io::{Cursor, SeekFrom};
 
-    use arrow::datatypes::{Field, TimeUnit};
+    use arrow::datatypes::{Field, Fields, TimeUnit};
     use fusio_log::{Decode, Encode};
     use tokio::io::AsyncSeekExt;
 
@@ -582,5 +632,26 @@ mod tests {
 
         let decoded = Value::decode(&mut cursor).await.unwrap();
         assert_eq!(value2.as_key_ref(), decoded.as_key_ref());
+    }
+
+    #[tokio::test]
+    async fn test_map_value_encode_decode() {
+        let value = Value::Map(
+            DataType::Struct(Fields::from_iter([
+                Field::new("key", DataType::Utf8, false),
+                Field::new("value", DataType::Utf8, true),
+            ])),
+            Arc::new([Arc::new(Value::String("key".to_string()))]),
+            Arc::new([Arc::new(Value::String("value".to_string()))]),
+            true,
+        );
+        let mut buf = Vec::new();
+        let mut cursor = Cursor::new(&mut buf);
+        value.encode(&mut cursor).await.unwrap();
+
+        cursor.seek(SeekFrom::Start(0)).await.unwrap();
+
+        let decoded = Value::decode(&mut cursor).await.unwrap();
+        assert_eq!(value, decoded);
     }
 }

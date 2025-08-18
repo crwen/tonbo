@@ -40,6 +40,12 @@ pub enum ValueRef<'a> {
     Time64(i64, TimeUnit),
     List(&'a DataType, Vec<Arc<Value>>),
     Dictionary(DictionaryKeyType, Box<ValueRef<'a>>),
+    Map(
+        DataType,
+        Arc<[Arc<ValueRef<'a>>]>,
+        Arc<[Arc<ValueRef<'a>>]>,
+        bool,
+    ),
 }
 
 impl Clone for ValueRef<'_> {
@@ -67,6 +73,9 @@ impl Clone for ValueRef<'_> {
             ValueRef::Time64(v, u) => ValueRef::Time64(*v, *u),
             ValueRef::List(data_type, v) => ValueRef::List(data_type, v.clone()),
             ValueRef::Dictionary(key_type, value) => ValueRef::Dictionary(*key_type, value.clone()),
+            ValueRef::Map(data_type, keys, values, sorted) => {
+                ValueRef::Map(data_type.clone(), keys.clone(), values.clone(), *sorted)
+            }
         }
     }
 }
@@ -334,6 +343,34 @@ impl<'a> ValueRef<'a> {
                     Box::new(value),
                 ))
             }
+            DataType::Map(_, sorted) => {
+                let arr = array
+                    .as_map_opt()
+                    .ok_or_else(|| ValueError::InvalidConversion("Map cast failed".into()))?;
+                if let Some(offset) = arr.value_offsets().get(index) {
+                    let start = *offset as usize;
+                    let end = *arr
+                        .value_offsets()
+                        .get(index + 1)
+                        .unwrap_or(&(arr.len() as i32)) as usize;
+                    let keys = arr.keys();
+                    let values = arr.values();
+                    let mut keys_ref = Vec::new();
+                    let mut values_ref = Vec::new();
+                    for i in start..end {
+                        keys_ref.push(Arc::new(ValueRef::from_array_ref(&keys, i)?));
+                        values_ref.push(Arc::new(ValueRef::from_array_ref(&values, i)?));
+                    }
+                    Ok(ValueRef::Map(
+                        arr.data_type().clone(),
+                        keys_ref.into_iter().collect(),
+                        values_ref.into_iter().collect(),
+                        *sorted,
+                    ))
+                } else {
+                    panic!("Map index out of bounds: {index}");
+                }
+            }
             _ => Err(ValueError::InvalidConversion(format!(
                 "Unsupported data type: {:?}",
                 array.data_type()
@@ -394,6 +431,20 @@ impl<'a> ValueRef<'a> {
             ValueRef::Dictionary(key_type, value_type) => {
                 DataType::Dictionary(Box::new(key_type.into()), Box::new(value_type.data_type()))
             }
+            ValueRef::Map(data_type, _, _, sorted) => {
+                if let DataType::Struct(fields) = data_type {
+                    debug_assert!(
+                        fields.len() == 2,
+                        "Map data type must only have 2 fields in struct"
+                    );
+                    DataType::Map(
+                        Arc::new(Field::new("item", DataType::Struct(fields.clone()), true)),
+                        *sorted,
+                    )
+                } else {
+                    panic!("Map data type must be a struct")
+                }
+            }
         }
     }
 
@@ -434,6 +485,17 @@ impl ValueRef<'_> {
             ValueRef::Dictionary(key_type, value) => {
                 Value::Dictionary(*key_type, Box::new(value.as_ref().to_owned()))
             }
+            ValueRef::Map(data_type, keys, values, sorted) => Value::Map(
+                data_type.clone(),
+                keys.iter()
+                    .map(|k| Arc::new(k.as_ref().to_owned()))
+                    .collect(),
+                values
+                    .iter()
+                    .map(|v| Arc::new(v.as_ref().to_owned()))
+                    .collect(),
+                *sorted,
+            ),
         }
     }
 }
@@ -465,6 +527,12 @@ impl<'a> From<&'a Value> for ValueRef<'a> {
             Value::Dictionary(key_type, value) => {
                 ValueRef::Dictionary(*key_type, Box::new(value.as_key_ref()))
             }
+            Value::Map(data_type, keys, values, sorted) => ValueRef::Map(
+                data_type.clone(),
+                keys.iter().map(|k| Arc::new(k.as_key_ref())).collect(),
+                values.iter().map(|k| Arc::new(k.as_key_ref())).collect(),
+                *sorted,
+            ),
         }
     }
 }
@@ -521,6 +589,10 @@ impl PartialEq for ValueRef<'_> {
             (ValueRef::Dictionary(key_type1, value1), ValueRef::Dictionary(key_type2, value2)) => {
                 key_type1 == key_type2 && value1.eq(value2)
             }
+            (
+                ValueRef::Map(ty1, keys1, values1, sorted1),
+                ValueRef::Map(ty2, keys2, values2, sorted2),
+            ) => sorted1 == sorted2 && ty1.eq(ty2) && keys1.eq(keys2) && values1.eq(values2),
             _ => false,
         }
     }
@@ -578,8 +650,8 @@ impl Ord for ValueRef<'_> {
             ) => {
                 unimplemented!("compare operation for dictionary is not supported")
             }
-            _ => {
-                panic!("can not compare different types: {self:?} and {other:?}")
+            t => {
+                panic!("compare operation for {t:?} is not supported")
             }
         }
     }
@@ -611,11 +683,22 @@ impl<'a> KeyRef<'a> for ValueRef<'a> {
             ValueRef::Time64(v, time_unit) => Value::Time64(v, time_unit),
             ValueRef::List(data_type, v) => Value::List(
                 DataType::List(Arc::new(Field::new("item", data_type.clone(), false))),
-                v.clone(),
+                v,
             ),
             ValueRef::Dictionary(key_type, value) => {
                 Value::Dictionary(key_type, Box::new(value.as_ref().to_owned()))
             }
+            ValueRef::Map(data_type, keys, values, sorted) => Value::Map(
+                data_type.clone(),
+                keys.iter()
+                    .map(|k| Arc::new(k.as_ref().to_owned()))
+                    .collect(),
+                values
+                    .iter()
+                    .map(|v| Arc::new(v.as_ref().to_owned()))
+                    .collect(),
+                sorted,
+            ),
         }
     }
 }

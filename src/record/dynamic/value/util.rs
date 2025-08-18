@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use arrow::datatypes::{Field, TimeUnit};
+use arrow::datatypes::{Field, Fields, TimeUnit};
 use fusio_log::{Decode, Encode};
 #[cfg(not(target_arch = "wasm32"))]
 use futures_util::future::BoxFuture;
@@ -110,6 +110,22 @@ where
                 encode_arrow_datatype(key_type, writer).await?;
                 encode_arrow_datatype(value_type, writer).await?;
             }
+            arrow::datatypes::DataType::Map(field, sorted) => {
+                32u8.encode(writer).await?;
+                field.name().encode(writer).await?;
+                encode_arrow_datatype(field.data_type(), writer).await?;
+                field.is_nullable().encode(writer).await?;
+                sorted.encode(writer).await?;
+            }
+            arrow::datatypes::DataType::Struct(fields) => {
+                33u8.encode(writer).await?;
+                (fields.len() as u32).encode(writer).await?;
+                for field in fields.iter() {
+                    field.name().encode(writer).await?;
+                    encode_arrow_datatype(field.data_type(), writer).await?;
+                    field.is_nullable().encode(writer).await?;
+                }
+            }
             _ => unreachable!(),
         };
         Ok(())
@@ -184,6 +200,29 @@ where
                     Box::new(key_type),
                     Box::new(value_type),
                 ))
+            }
+            32 => {
+                let name = String::decode(reader).await?;
+                let data_type = decode_arrow_datatype(reader).await?;
+                let is_nullable = bool::decode(reader).await?;
+                let sorted = bool::decode(reader).await?;
+                Ok(arrow::datatypes::DataType::Map(
+                    Arc::new(Field::new(name, data_type, is_nullable)),
+                    sorted,
+                ))
+            }
+            33 => {
+                let len = u32::decode(reader).await?;
+                let mut fields = Vec::with_capacity(len as usize);
+                for _ in 0..len {
+                    let name = String::decode(reader).await?;
+                    let data_type = decode_arrow_datatype(reader).await?;
+                    let is_nullable = bool::decode(reader).await?;
+                    fields.push(Field::new(name, data_type, is_nullable));
+                }
+                Ok(arrow::datatypes::DataType::Struct(Fields::from_iter(
+                    fields,
+                )))
             }
 
             _ => unreachable!(),
@@ -349,5 +388,63 @@ mod tests {
             let decoded = decode_arrow_datatype(&mut cursor).await.unwrap();
             assert_eq!(data_type, decoded);
         }
+    }
+
+    #[tokio::test]
+    async fn test_map_datatype_encode_decode() {
+        let mut buf = Vec::new();
+        let mut cursor = Cursor::new(&mut buf);
+        let data_type = DataType::Map(Arc::new(Field::new("item", DataType::Int32, false)), true);
+        let data_type2 = DataType::Map(Arc::new(Field::new("item2", DataType::Utf8, false)), true);
+        let data_type3 =
+            DataType::Map(Arc::new(Field::new("item3", DataType::Binary, false)), true);
+        let data_type4 = DataType::Map(
+            Arc::new(Field::new(
+                "item4",
+                DataType::List(Arc::new(Field::new("list", DataType::UInt64, false))),
+                false,
+            )),
+            true,
+        );
+        let data_type5 = DataType::Map(
+            Arc::new(Field::new(
+                "item4",
+                DataType::Struct(Fields::from_iter(vec![
+                    Field::new("key", DataType::UInt16, false),
+                    Field::new("value", DataType::FixedSizeBinary(7), false),
+                ])),
+                false,
+            )),
+            true,
+        );
+        encode_arrow_datatype(&data_type, &mut cursor)
+            .await
+            .unwrap();
+        encode_arrow_datatype(&data_type2, &mut cursor)
+            .await
+            .unwrap();
+        encode_arrow_datatype(&data_type3, &mut cursor)
+            .await
+            .unwrap();
+        encode_arrow_datatype(&data_type4, &mut cursor)
+            .await
+            .unwrap();
+        encode_arrow_datatype(&data_type5, &mut cursor)
+            .await
+            .unwrap();
+
+        cursor.seek(SeekFrom::Start(0)).await.unwrap();
+
+        let decoded = decode_arrow_datatype(&mut cursor).await.unwrap();
+        let decoded2 = decode_arrow_datatype(&mut cursor).await.unwrap();
+        let decoded3 = decode_arrow_datatype(&mut cursor).await.unwrap();
+        let decoded4 = decode_arrow_datatype(&mut cursor).await.unwrap();
+        let decoded5 = decode_arrow_datatype(&mut cursor).await.unwrap();
+
+        assert_eq!(data_type, decoded);
+        assert_eq!(data_type2, decoded2);
+        assert_eq!(data_type3, decoded3);
+        assert_eq!(data_type4, decoded4);
+        assert_eq!(data_type5, decoded5);
     }
 }
