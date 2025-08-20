@@ -512,7 +512,9 @@ impl NestedBuilder {
             DataType::UInt64 => ValueRef::UInt64(u64::default()),
             DataType::Float32 => ValueRef::Float32(f32::default()),
             DataType::Float64 => ValueRef::Float64(f64::default()),
-            DataType::Timestamp(time_unit, _) => ValueRef::Timestamp(i64::default(), *time_unit),
+            DataType::Timestamp(time_unit, tz) => {
+                ValueRef::Timestamp(i64::default(), *time_unit, tz.clone())
+            }
             DataType::Date32 => ValueRef::Date32(i32::default()),
             DataType::Date64 => ValueRef::Date64(i64::default()),
             DataType::Time32(time_unit) => ValueRef::Time32(i32::default(), *time_unit),

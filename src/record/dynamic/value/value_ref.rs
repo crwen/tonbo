@@ -35,7 +35,7 @@ pub enum ValueRef<'a> {
     FixedSizeBinary(&'a [u8], u32),
     Date32(i32),
     Date64(i64),
-    Timestamp(i64, TimeUnit),
+    Timestamp(i64, TimeUnit, Option<Arc<str>>),
     Time32(i32, TimeUnit),
     Time64(i64, TimeUnit),
     List(&'a DataType, Vec<Arc<Value>>),
@@ -68,7 +68,7 @@ impl Clone for ValueRef<'_> {
             ValueRef::FixedSizeBinary(v1, w) => ValueRef::FixedSizeBinary(v1, *w),
             ValueRef::Date32(v) => ValueRef::Date32(*v),
             ValueRef::Date64(v) => ValueRef::Date64(*v),
-            ValueRef::Timestamp(v, u) => ValueRef::Timestamp(*v, *u),
+            ValueRef::Timestamp(v, u, tz) => ValueRef::Timestamp(*v, *u, tz.clone()),
             ValueRef::Time32(v, u) => ValueRef::Time32(*v, *u),
             ValueRef::Time64(v, u) => ValueRef::Time64(*v, *u),
             ValueRef::List(data_type, v) => ValueRef::List(data_type, v.clone()),
@@ -194,7 +194,7 @@ impl<'a> ValueRef<'a> {
                     .ok_or_else(|| ValueError::InvalidConversion("Date64 cast failed".into()))?;
                 Ok(ValueRef::Date64(arr.value(index)))
             }
-            DataType::Timestamp(unit, _) => match unit {
+            DataType::Timestamp(unit, tz) => match unit {
                 TimeUnit::Second => {
                     let arr = array
                         .as_any()
@@ -202,7 +202,11 @@ impl<'a> ValueRef<'a> {
                         .ok_or_else(|| {
                             ValueError::InvalidConversion("TimestampSecond cast failed".into())
                         })?;
-                    Ok(ValueRef::Timestamp(arr.value(index), TimeUnit::Second))
+                    Ok(ValueRef::Timestamp(
+                        arr.value(index),
+                        TimeUnit::Second,
+                        tz.clone(),
+                    ))
                 }
                 TimeUnit::Millisecond => {
                     let arr = array
@@ -211,7 +215,11 @@ impl<'a> ValueRef<'a> {
                         .ok_or_else(|| {
                             ValueError::InvalidConversion("TimestampMillisecond cast failed".into())
                         })?;
-                    Ok(ValueRef::Timestamp(arr.value(index), TimeUnit::Millisecond))
+                    Ok(ValueRef::Timestamp(
+                        arr.value(index),
+                        TimeUnit::Millisecond,
+                        tz.clone(),
+                    ))
                 }
                 TimeUnit::Microsecond => {
                     let arr = array
@@ -220,7 +228,11 @@ impl<'a> ValueRef<'a> {
                         .ok_or_else(|| {
                             ValueError::InvalidConversion("TimestampMicrosecond cast failed".into())
                         })?;
-                    Ok(ValueRef::Timestamp(arr.value(index), TimeUnit::Microsecond))
+                    Ok(ValueRef::Timestamp(
+                        arr.value(index),
+                        TimeUnit::Microsecond,
+                        tz.clone(),
+                    ))
                 }
                 TimeUnit::Nanosecond => {
                     let arr = array
@@ -229,7 +241,11 @@ impl<'a> ValueRef<'a> {
                         .ok_or_else(|| {
                             ValueError::InvalidConversion("TimestampNanosecond cast failed".into())
                         })?;
-                    Ok(ValueRef::Timestamp(arr.value(index), TimeUnit::Nanosecond))
+                    Ok(ValueRef::Timestamp(
+                        arr.value(index),
+                        TimeUnit::Nanosecond,
+                        tz.clone(),
+                    ))
                 }
             },
 
@@ -398,14 +414,14 @@ impl<'a> ValueRef<'a> {
             ValueRef::FixedSizeBinary(_, w) => DataType::FixedSizeBinary(*w as i32),
             ValueRef::Date32(_) => DataType::Date32,
             ValueRef::Date64(_) => DataType::Date64,
-            ValueRef::Timestamp(_, unit) => {
+            ValueRef::Timestamp(_, unit, tz) => {
                 let arrow_unit = match unit {
                     TimeUnit::Second => arrow::datatypes::TimeUnit::Second,
                     TimeUnit::Millisecond => arrow::datatypes::TimeUnit::Millisecond,
                     TimeUnit::Microsecond => arrow::datatypes::TimeUnit::Microsecond,
                     TimeUnit::Nanosecond => arrow::datatypes::TimeUnit::Nanosecond,
                 };
-                DataType::Timestamp(arrow_unit, None)
+                DataType::Timestamp(arrow_unit, tz.clone())
             }
             ValueRef::Time32(_, unit) => {
                 let arrow_unit = match unit {
@@ -475,7 +491,7 @@ impl ValueRef<'_> {
             ValueRef::Date32(v) => Value::Date32(*v),
             ValueRef::Date64(v) => Value::Date64(*v),
             ValueRef::FixedSizeBinary(b, w) => Value::FixedSizeBinary(b.to_vec(), *w),
-            ValueRef::Timestamp(v, unit) => Value::Timestamp(*v, *unit),
+            ValueRef::Timestamp(v, unit, tz) => Value::Timestamp(*v, *unit, tz.clone()),
             ValueRef::Time32(v, unit) => Value::Time32(*v, *unit),
             ValueRef::Time64(v, unit) => Value::Time64(*v, *unit),
             ValueRef::List(data_type, values) => Value::List(
@@ -520,7 +536,7 @@ impl<'a> From<&'a Value> for ValueRef<'a> {
             Value::FixedSizeBinary(b, w) => ValueRef::FixedSizeBinary(b.as_slice(), *w),
             Value::Date32(v) => ValueRef::Date32(*v),
             Value::Date64(v) => ValueRef::Date64(*v),
-            Value::Timestamp(v, unit) => ValueRef::Timestamp(*v, *unit),
+            Value::Timestamp(v, unit, tz) => ValueRef::Timestamp(*v, *unit, tz.clone()),
             Value::Time32(v, unit) => ValueRef::Time32(*v, *unit),
             Value::Time64(v, unit) => ValueRef::Time64(*v, *unit),
             Value::List(data_type, v) => ValueRef::List(data_type, v.clone()),
@@ -561,7 +577,11 @@ impl PartialEq for ValueRef<'_> {
             (ValueRef::FixedSizeBinary(a, _), ValueRef::FixedSizeBinary(b, _)) => a.eq(b),
             (ValueRef::Date32(a), ValueRef::Date32(b)) => a.eq(b),
             (ValueRef::Date64(a), ValueRef::Date64(b)) => a.eq(b),
-            (ValueRef::Timestamp(a, unit1), ValueRef::Timestamp(b, unit2)) => {
+            (ValueRef::Timestamp(a, unit1, tz1), ValueRef::Timestamp(b, unit2, tz2)) => {
+                // FIXME: compare timestamps in different time zones
+                if tz1 != tz2 {
+                    return false;
+                }
                 if unit1 == unit2 {
                     return a.eq(b);
                 }
@@ -626,7 +646,8 @@ impl Ord for ValueRef<'_> {
             (ValueRef::FixedSizeBinary(a, _), ValueRef::FixedSizeBinary(b, _)) => a.cmp(b),
             (ValueRef::Date32(a), ValueRef::Date32(b)) => a.cmp(b),
             (ValueRef::Date64(a), ValueRef::Date64(b)) => a.cmp(b),
-            (ValueRef::Timestamp(a, unit1), ValueRef::Timestamp(b, unit2)) => {
+            (ValueRef::Timestamp(a, unit1, tz1), ValueRef::Timestamp(b, unit2, tz2)) => {
+                // FIXME: compare timestamps in different time zones
                 if unit1 == unit2 {
                     return a.cmp(b);
                 }
@@ -678,7 +699,7 @@ impl<'a> KeyRef<'a> for ValueRef<'a> {
             ValueRef::FixedSizeBinary(v, w) => Value::FixedSizeBinary(v.to_vec(), w),
             ValueRef::Date32(v) => Value::Date32(v),
             ValueRef::Date64(v) => Value::Date64(v),
-            ValueRef::Timestamp(v, time_unit) => Value::Timestamp(v, time_unit),
+            ValueRef::Timestamp(v, time_unit, tz) => Value::Timestamp(v, time_unit, tz),
             ValueRef::Time32(v, time_unit) => Value::Time32(v, time_unit),
             ValueRef::Time64(v, time_unit) => Value::Time64(v, time_unit),
             ValueRef::List(data_type, v) => Value::List(
@@ -801,10 +822,10 @@ mod tests {
 
     #[test]
     fn test_timestamp_value_ref_cmp() {
-        let t1 = ValueRef::Timestamp(1716, TimeUnit::Second);
-        let t2 = ValueRef::Timestamp(1716000, TimeUnit::Millisecond);
-        let t3 = ValueRef::Timestamp(1716000001, TimeUnit::Microsecond);
-        let t4 = ValueRef::Timestamp(1715999999999, TimeUnit::Nanosecond);
+        let t1 = ValueRef::Timestamp(1716, TimeUnit::Second, None);
+        let t2 = ValueRef::Timestamp(1716000, TimeUnit::Millisecond, None);
+        let t3 = ValueRef::Timestamp(1716000001, TimeUnit::Microsecond, None);
+        let t4 = ValueRef::Timestamp(1715999999999, TimeUnit::Nanosecond, None);
         assert!(t1 == t2);
         assert!(t1 < t3);
         assert!(t1 > t4);
@@ -838,11 +859,11 @@ mod tests {
             let array = Arc::new(TimestampMillisecondArray::from(vec![1, 2, 3])) as ArrayRef;
             assert_eq!(
                 ValueRef::from_array_ref(&array, 0).unwrap(),
-                ValueRef::Timestamp(1, TimeUnit::Millisecond)
+                ValueRef::Timestamp(1, TimeUnit::Millisecond, None)
             );
             assert_eq!(
                 ValueRef::from_array_ref(&array, 1).unwrap(),
-                ValueRef::Timestamp(2, TimeUnit::Millisecond)
+                ValueRef::Timestamp(2, TimeUnit::Millisecond, None)
             );
         }
     }

@@ -148,7 +148,7 @@ pub(crate) mod test {
                 Value::Binary(i.to_le_bytes().to_vec()),
                 Value::Float32(i as f32 * 1.11),
                 Value::Float64(i as f64 * 1.01),
-                Value::Timestamp(i as i64, TimeUnit::Millisecond),
+                Value::Timestamp(i as i64, TimeUnit::Millisecond, None),
             ];
             let mut record = DynRecord::new(values, 0);
 
@@ -173,7 +173,7 @@ pub(crate) mod test {
             Value::Binary(b"hello tonbo".to_vec()),
             Value::Float32(1.1234),
             Value::Float64(1.01),
-            Value::Timestamp(1717507203412, TimeUnit::Millisecond),
+            Value::Timestamp(1717507203412, TimeUnit::Millisecond, None),
         ];
         DynRecord::new(values, 0)
     }
@@ -194,7 +194,7 @@ pub(crate) mod test {
                 ValueRef::Binary(b"hello tonbo"),
                 ValueRef::Float32(1.1234),
                 ValueRef::Float64(1.01),
-                ValueRef::Timestamp(1717507203412, TimeUnit::Millisecond),
+                ValueRef::Timestamp(1717507203412, TimeUnit::Millisecond, None),
             ],
             0,
         );

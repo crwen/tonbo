@@ -57,7 +57,7 @@ pub enum Value {
     Date64(i64),
     Time32(i32, TimeUnit),
     Time64(i64, TimeUnit),
-    Timestamp(i64, TimeUnit),
+    Timestamp(i64, TimeUnit, Option<Arc<str>>),
     /// List of values that are of the same type.
     List(DataType, Vec<Arc<Value>>),
     Dictionary(DictionaryKeyType, Box<Value>),
@@ -85,7 +85,7 @@ impl Value {
             Value::FixedSizeBinary(_, byte_width) => DataType::FixedSizeBinary(*byte_width as i32),
             Value::Date32(_) => DataType::Date32,
             Value::Date64(_) => DataType::Date64,
-            Value::Timestamp(_, unit) => DataType::Timestamp(*unit, None),
+            Value::Timestamp(_, unit, tz) => DataType::Timestamp(*unit, tz.clone()),
             Value::Time32(_, unit) => DataType::Time32(*unit),
             Value::Time64(_, unit) => DataType::Time64(*unit),
             Value::List(data_type, _) => arrow::datatypes::DataType::List(Arc::new(Field::new(
@@ -147,7 +147,7 @@ impl Key for Value {
             }
             Value::Date32(v) => Arc::new(arrow::array::Date32Array::new_scalar(*v)),
             Value::Date64(v) => Arc::new(arrow::array::Date64Array::new_scalar(*v)),
-            Value::Timestamp(v, time_unit) => match time_unit {
+            Value::Timestamp(v, time_unit, _) => match time_unit {
                 TimeUnit::Second => Arc::new(arrow::array::TimestampSecondArray::new_scalar(*v)),
                 TimeUnit::Millisecond => {
                     Arc::new(arrow::array::TimestampMillisecondArray::new_scalar(*v))
@@ -210,7 +210,11 @@ impl PartialEq for Value {
             (Value::FixedSizeBinary(a, _), Value::FixedSizeBinary(b, _)) => a.eq(b),
             (Value::Date32(a), Value::Date32(b)) => a.eq(b),
             (Value::Date64(a), Value::Date64(b)) => a.eq(b),
-            (Value::Timestamp(a, unit1), Value::Timestamp(b, unit2)) => {
+            (Value::Timestamp(a, unit1, tz1), Value::Timestamp(b, unit2, tz2)) => {
+                // FIXME: compare timestamps in different time zones
+                if tz1 != tz2 {
+                    return false;
+                }
                 if unit1 == unit2 {
                     return a.eq(b);
                 }
@@ -274,7 +278,8 @@ impl Ord for Value {
             (Value::FixedSizeBinary(a, _), Value::FixedSizeBinary(b, _)) => a.cmp(b),
             (Value::Date32(a), Value::Date32(b)) => a.cmp(b),
             (Value::Date64(a), Value::Date64(b)) => a.cmp(b),
-            (Value::Timestamp(a, unit1), Value::Timestamp(b, unit2)) => {
+            (Value::Timestamp(a, unit1, _tz1), Value::Timestamp(b, unit2, _tz2)) => {
+                // FIXME: compare timestamps in different time zones
                 if unit1 == unit2 {
                     return a.cmp(b);
                 }
@@ -328,9 +333,10 @@ impl Hash for Value {
             }
             Value::Date32(v) => v.hash(state),
             Value::Date64(v) => v.hash(state),
-            Value::Timestamp(v, time_unit) => {
+            Value::Timestamp(v, time_unit, tz) => {
                 v.hash(state);
                 time_unit.hash(state);
+                tz.hash(state);
             }
             Value::Time32(v, time_unit) => {
                 v.hash(state);
@@ -378,7 +384,7 @@ impl fmt::Display for Value {
             Value::FixedSizeBinary(v, byte_width) => write!(f, "{v:?}, {byte_width}"),
             Value::Date32(v) => write!(f, "Date32({v})"),
             Value::Date64(v) => write!(f, "Date64({v})"),
-            Value::Timestamp(v, unit) => write!(f, "Timestamp({v}, {unit:?})"),
+            Value::Timestamp(v, unit, tz) => write!(f, "Timestamp({v}, {unit:?}, {tz:?})"),
             Value::Time32(v, unit) => write!(f, "Time32({v}, {unit:?})"),
             Value::Time64(v, unit) => write!(f, "Time64({v}, {unit:?})"),
             Value::List(ty, vec) => write!(
@@ -508,10 +514,10 @@ mod tests {
 
     #[test]
     fn test_timestamp_value_cmp() {
-        let t1 = Value::Timestamp(1716, TimeUnit::Second);
-        let t2 = Value::Timestamp(1716000, TimeUnit::Millisecond);
-        let t3 = Value::Timestamp(1716000001, TimeUnit::Microsecond);
-        let t4 = Value::Timestamp(1715999999999, TimeUnit::Nanosecond);
+        let t1 = Value::Timestamp(1716, TimeUnit::Second, None);
+        let t2 = Value::Timestamp(1716000, TimeUnit::Millisecond, None);
+        let t3 = Value::Timestamp(1716000001, TimeUnit::Microsecond, None);
+        let t4 = Value::Timestamp(1715999999999, TimeUnit::Nanosecond, None);
         assert!(t1 == t2);
         assert!(t1 < t3);
         assert!(t1 > t4);

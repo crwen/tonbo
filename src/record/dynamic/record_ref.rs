@@ -277,9 +277,9 @@ mod tests {
         let values = vec![
             Value::Boolean(true),
             Value::UInt32(7u32),
-            Value::Timestamp(1717507203412, TimeUnit::Millisecond),
-            Value::Timestamp(1717507203432, TimeUnit::Millisecond),
-            Value::Timestamp(1717507203442, TimeUnit::Millisecond),
+            Value::Timestamp(1717507203412, TimeUnit::Millisecond, None),
+            Value::Timestamp(1717507203432, TimeUnit::Millisecond, None),
+            Value::Timestamp(1717507203442, TimeUnit::Millisecond, None),
             Value::Null,
         ];
         let record = DynRecord::new(values, 2);
@@ -290,15 +290,15 @@ mod tests {
             let columns = record_ref.columns;
             assert_eq!(
                 columns[2],
-                ValueRef::Timestamp(1717507203412, TimeUnit::Millisecond),
+                ValueRef::Timestamp(1717507203412, TimeUnit::Millisecond, None),
             );
             assert_eq!(
                 columns[3],
-                ValueRef::Timestamp(1717507203432, TimeUnit::Millisecond),
+                ValueRef::Timestamp(1717507203432, TimeUnit::Millisecond, None),
             );
             assert_eq!(
                 columns[4],
-                ValueRef::Timestamp(1717507203442, TimeUnit::Millisecond),
+                ValueRef::Timestamp(1717507203442, TimeUnit::Millisecond, None),
             );
 
             assert_eq!(columns[5], ValueRef::Null);
@@ -316,7 +316,7 @@ mod tests {
             let columns = record_ref.columns;
             assert_eq!(
                 columns[2],
-                ValueRef::Timestamp(1717507203412, TimeUnit::Millisecond),
+                ValueRef::Timestamp(1717507203412, TimeUnit::Millisecond, None),
             );
             assert_eq!(columns[3], ValueRef::Null);
             assert_eq!(columns[4], ValueRef::Null);

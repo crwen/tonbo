@@ -253,7 +253,7 @@ impl AsValue for ValueRef<'_> {
             ValueRef::Int64(v) => Some(v),
             ValueRef::Time64(v, _) => Some(v),
             ValueRef::Date64(v) => Some(v),
-            ValueRef::Timestamp(v, _) => Some(v),
+            ValueRef::Timestamp(v, _, _) => Some(v),
             _ => None,
         }
     }

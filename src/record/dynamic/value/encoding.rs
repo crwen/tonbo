@@ -75,7 +75,7 @@ impl Value {
                 Value::Date64(v) => {
                     v.encode(writer).await?;
                 }
-                Value::Timestamp(v, _) => {
+                Value::Timestamp(v, _, _) => {
                     v.encode(writer).await?;
                 }
                 Value::Time32(v, _) => {
@@ -123,7 +123,7 @@ impl Value {
     {
         let fut = async move {
             let data_type = decode_arrow_datatype(reader).await?;
-            match &data_type {
+            match data_type {
                 DataType::Null => Ok(Value::Null),
                 DataType::Boolean => Ok(Value::Boolean(bool::decode(reader).await?)),
                 DataType::Int8 => Ok(Value::Int8(i8::decode(reader).await?)),
@@ -140,13 +140,15 @@ impl Value {
                 DataType::Binary => Ok(Value::Binary(Vec::<u8>::decode(reader).await?)),
                 DataType::FixedSizeBinary(w) => Ok(Value::FixedSizeBinary(
                     Vec::<u8>::decode(reader).await?,
-                    *w as u32,
+                    w as u32,
                 )),
                 DataType::Date32 => Ok(Value::Date32(i32::decode(reader).await?)),
                 DataType::Date64 => Ok(Value::Date64(i64::decode(reader).await?)),
-                DataType::Timestamp(time_unit, _) => {
-                    Ok(Value::Timestamp(i64::decode(reader).await?, *time_unit))
-                }
+                DataType::Timestamp(time_unit, tz) => Ok(Value::Timestamp(
+                    i64::decode(reader).await?,
+                    time_unit,
+                    tz.clone(),
+                )),
                 DataType::Time32(time_unit) => {
                     if matches!(
                         time_unit,
@@ -155,7 +157,7 @@ impl Value {
                     ) {
                         unreachable!()
                     }
-                    Ok(Value::Time32(i32::decode(reader).await?, *time_unit))
+                    Ok(Value::Time32(i32::decode(reader).await?, time_unit))
                 }
                 DataType::Time64(time_unit) => {
                     if matches!(
@@ -165,7 +167,7 @@ impl Value {
                     ) {
                         unreachable!()
                     }
-                    Ok(Value::Time64(i64::decode(reader).await?, *time_unit))
+                    Ok(Value::Time64(i64::decode(reader).await?, time_unit))
                 }
                 DataType::List(field) => {
                     let len = u32::decode(reader).await?;
@@ -193,7 +195,7 @@ impl Value {
                         field.data_type().clone(),
                         keys.into_iter().collect(),
                         values.into_iter().collect(),
-                        *sorted,
+                        sorted,
                     ))
                 }
                 _ => Err(fusio::Error::Other(Box::new(ValueError::InvalidDataType(
@@ -239,7 +241,7 @@ impl Encode for Value {
             Value::FixedSizeBinary(v, _) => 1 + v.size(),
             Value::Date32(v) => 1 + v.size(),
             Value::Date64(v) => 1 + v.size(),
-            Value::Timestamp(v, _) => 1 + v.size() + 1,
+            Value::Timestamp(v, _, _) => 1 + v.size() + 1,
             Value::Time32(v, _) => 1 + v.size() + 1,
             Value::Time64(v, _) => 1 + v.size() + 1,
             Value::List(data_type, vec) => {
@@ -332,7 +334,7 @@ impl ValueRef<'_> {
                 ValueRef::Date64(v) => {
                     v.encode(writer).await?;
                 }
-                ValueRef::Timestamp(v, _) => {
+                ValueRef::Timestamp(v, _, _) => {
                     v.encode(writer).await?;
                 }
                 ValueRef::Time32(v, _) => {
@@ -402,7 +404,7 @@ impl Encode for ValueRef<'_> {
             ValueRef::FixedSizeBinary(v, _) => 1 + v.size(),
             ValueRef::Date32(v) => 1 + v.size(),
             ValueRef::Date64(v) => 1 + v.size(),
-            ValueRef::Timestamp(v, _) => 1 + v.size() + 1,
+            ValueRef::Timestamp(v, _, _) => 1 + v.size() + 1,
             ValueRef::Time32(v, _) => 1 + v.size() + 1,
             ValueRef::Time64(v, _) => 1 + v.size() + 1,
             ValueRef::List(data_type, vec) => {
@@ -468,7 +470,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_value_timstamp_encode_decode() {
-        let value = Value::Timestamp(1732838400, TimeUnit::Nanosecond);
+        let value = Value::Timestamp(1732838400, TimeUnit::Nanosecond, None);
         let mut buf = Vec::new();
         let mut cursor = Cursor::new(&mut buf);
         value.encode(&mut cursor).await.unwrap();
@@ -540,6 +542,7 @@ mod tests {
                 vec![Arc::new(Value::Timestamp(
                     1732838400,
                     TimeUnit::Millisecond,
+                    None,
                 ))],
             ))],
         );
